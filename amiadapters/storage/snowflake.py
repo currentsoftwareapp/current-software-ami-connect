@@ -577,7 +577,30 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                         ,case when estimated then interval_value else 0 end as est_usage
                     from cte2
                 )
-                select *
+                select
+                    org_id
+                    ,device_id
+                    ,flowtime                as flowtime_ts
+                    ,flowinterval            as flowinterval_sec
+                    ,register_value          as raw_register_value_cf
+                    ,interval_value          as raw_interval_value_cf
+                    ,interval_value_clean    as clean_interval_value_cf
+                    ,estimated               as is_estimated
+                    ,is_leak                 as is_leak
+                    ,min_leak_bck            as minflow_prev24h_cf
+                    ,min_leak_fwd            as minflow_lead24h_cf
+                    ,leak_calc               as leak_calculated_cf
+                    ,leak_avg                as leak_average_cf
+                    ,leak_stdev              as leak_stdev_cf
+                    ,leak_clean              as leak_clean_cf
+                    ,grp                     as event_seq
+                    ,stime                   as event_start_ts
+                    ,etime                   as event_end_ts
+                    ,duration                as event_hrs
+                    ,event_id                as event_id
+                    ,leak                    as final_leak_cf
+                    ,usage                   as final_usage_cf
+                    ,est_usage               as final_est_usage_cf
                 from leaks
             """
             conn.cursor().execute(ami_leaks_sql)
@@ -589,27 +612,63 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                     org_id
                     , device_id
                     , event_id
-                    , stime
-                    , etime
-                    , duration
+                    , event_start_ts
+                    , event_end_ts
+                    , event_hrs
                     , is_leak
-                    , array_agg(flowtime) as flowtime
-                    , array_agg(flowinterval) as flowinterval
-                    , array_agg(ifnull(estimated, 'NaN')) as estimated
-                    , array_agg(ifnull(interval_value, 'NaN')) as interval_value
-                    , array_agg(ifnull(interval_value_clean, 'NaN')) as interval_value_clean
-                    , array_agg(ifnull(leak_calc, 'NaN')) as leak_calc
-                    , avg(leak_calc) as leak_avg
-                    , stddev(leak_calc) as leak_stdev
-                    , array_agg(ifnull(leak_clean, 'NaN')) as leak_clean
-                    , avg(leak) as leak_rate
-                    , array_agg(ifnull(leak, 'NaN')) as leak
-                    , array_agg(ifnull(usage, 'NaN')) as usage
-                    , array_agg(ifnull(est_usage, 'NaN')) as est_usage
+                    , array_agg(flowtime_ts) as flowtime_ts
+                    , array_agg(flowinterval_sec) as flowinterval_sec
+                    , array_agg(ifnull(is_estimated, 'NaN')) as is_estimated
+                    , array_agg(ifnull(raw_interval_value_cf, 'NaN')) as raw_interval_value_cf
+                    , array_agg(ifnull(clean_interval_value_cf, 'NaN')) as clean_interval_value_cf
+                    , array_agg(ifnull(leak_calculated_cf, 'NaN')) as leak_calculated_cf
+                    , avg(leak_calculated_cf) as leak_average_cf
+                    , stddev(leak_calculated_cf) as leak_stdev_cf
+                    , array_agg(ifnull(leak_clean_cf, 'NaN')) as leak_clean_cf
+                    , avg(final_leak_cf) as final_leak_rate_cfph
+                    , array_agg(ifnull(final_leak_cf, 'NaN')) as final_leak_cf
+                    , array_agg(ifnull(final_usage_cf, 'NaN')) as final_usage_cf
+                    , array_agg(ifnull(final_est_usage_cf, 'NaN')) as final_est_usage_cf
+                    , sum(final_leak_cf) as final_leak_sum_cf
+                    , sum(final_usage_cf) as final_usage_sum_cf
+                    , sum(final_est_usage_cf) as final_est_usage_sum_cf
+                    , sum(raw_interval_value_cf) as raw_interval_value_sum_cf
                 from leaks_{self.org_id}
-                group by org_id, device_id, event_id, stime, etime, duration, is_leak
+                group by org_id, device_id, event_id, event_start_ts, event_end_ts, event_hrs, is_leak
             """
             conn.cursor().execute(ami_leaks_agg_sql)
+
+            ami_irrigation_detection_agg_sql = f"""
+                create or replace table irrigation_detection_agg
+                as
+                select
+                    meter_id
+                    , array_agg(timestamp) within group (order by timestamp) as timestamp
+                    , array_agg(total_volume) within group (order by timestamp) as total_volume
+                    , array_agg(irrigation_volume) within group (order by timestamp) as irrigation_volume
+                    , array_agg(non_irrigation_volume) within group (order by timestamp) as non_irrigation_volume
+                    --
+                    , array_agg(irrigation_flag) within group (order by timestamp) as irrigation_flag
+                    , array_agg(daily_irrigation_detected) within group (order by timestamp) as daily_irrigation_detected
+                    --
+                    , array_agg(daily_confidence) within group (order by timestamp) as daily_confidence
+                    , array_agg(hourly_confidence) within group (order by timestamp) as hourly_confidence
+                    --
+                    , model_used
+                    , meter_baseline_days
+                    , meter_normal_days
+                    , meter_total_training_days
+                    , meter_needs_finetuning
+                    , meter_has_custom_model
+                    , district_source
+                    , meter_type
+                from
+                    irrigation_detection
+                where
+                    1=1
+                group by all
+            """
+            conn.cursor().execute(ami_irrigation_detection_agg_sql)
 
     def _meter_tuple(self, meter: GeneralMeter, row_active_from: datetime):
         result = [
