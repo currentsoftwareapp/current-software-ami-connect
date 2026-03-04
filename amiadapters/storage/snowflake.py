@@ -377,7 +377,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
             f"Detecting continuous flows of at least {threshold_streak_for_continuous_flow_hours} hours for org_id {org_id} on readings between {min_date_to_process} and {max_date}."
         )
         continuous_flow_alerts_sql = f"""
-            create or replace table stage_continuous_flows
+            create or replace temporary table stage_continuous_flows
             as
             with augmented_readings as
             -- Augment recent readings with data that will help us calculate leaks
@@ -524,30 +524,31 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
         )
 
         merge_sql = f"""
-        MERGE INTO {meter_alerts_table_name} t
-        USING stage_continuous_flows s
-        ON t.org_id = s.org_id 
-        AND t.device_id = s.device_id
-        AND (
-            (t.start_time BETWEEN s.stime2 AND s.etime2)
-            OR (t.end_time BETWEEN s.stime2 AND s.etime2)
-            OR (s.stime2 BETWEEN t.start_time AND t.end_time)
-            OR (s.etime2 BETWEEN t.start_time AND t.end_time)
-        )
-        -- still active
-        WHEN MATCHED AND s.is_active = true THEN UPDATE SET
-            t.start_time = LEAST(t.start_time, s.stime2),
-            t.end_time = null
-        -- not active
-        WHEN MATCHED THEN UPDATE SET
-            t.start_time = LEAST(t.start_time, s.stime2),
-            t.end_time = GREATEST(IFNULL(t.end_time, s.etime2), s.etime2)
-        -- new alert
-        WHEN NOT MATCHED THEN INSERT
-                (org_id, device_id, start_time, end_time, alert_type)
-            VALUES
-                (s.org_id, s.device_id, s.stime2, case when s.is_active then null else s.etime2 end, 'continuous_flow')
-            ;
+            MERGE INTO {meter_alerts_table_name} t
+            USING stage_continuous_flows s
+            ON t.org_id = s.org_id 
+            AND t.device_id = s.device_id
+            AND t.alert_type = 'continuous_flow'
+            AND (
+                (t.start_time BETWEEN s.stime2 AND s.etime2)
+                OR (t.end_time BETWEEN s.stime2 AND s.etime2)
+                OR (s.stime2 BETWEEN t.start_time AND t.end_time)
+                OR (s.etime2 BETWEEN t.start_time AND t.end_time)
+            )
+            -- still active
+            WHEN MATCHED AND s.is_active = true THEN UPDATE SET
+                t.start_time = LEAST(t.start_time, s.stime2),
+                t.end_time = null
+            -- not active
+            WHEN MATCHED THEN UPDATE SET
+                t.start_time = LEAST(t.start_time, s.stime2),
+                t.end_time = GREATEST(IFNULL(t.end_time, s.etime2), s.etime2)
+            -- new alert
+            WHEN NOT MATCHED THEN INSERT
+                    (org_id, device_id, start_time, end_time, alert_type)
+                VALUES
+                    (s.org_id, s.device_id, s.stime2, case when s.is_active then null else s.etime2 end, 'continuous_flow')
+                ;
         """
         conn.cursor().execute(merge_sql)
 
