@@ -56,10 +56,8 @@ class BaseSnowflakeIntegrationTestCase(unittest.TestCase):
         # This fixes an issue for these tests where tz offsets in Snowflake are set to America/Los_Angeles
         # even though the python datetime has tzinfo=UTC. The issue doesn't seem to affect production,
         # but as of now we don't know why!
-        cls.conn.cursor().execute("ALTER SESSION SET TIMEZONE = 'UTC'")
-        cls.conn.cursor().execute(
-            "ALTER SESSION SET TIMESTAMP_TYPE_MAPPING = 'TIMESTAMP_TZ'"
-        )
+        cls.cs.execute("ALTER SESSION SET TIMEZONE = 'UTC'")
+        cls.cs.execute("ALTER SESSION SET TIMESTAMP_TYPE_MAPPING = 'TIMESTAMP_TZ'")
 
     @classmethod
     def tearDownClass(cls):
