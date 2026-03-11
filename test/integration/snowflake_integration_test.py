@@ -356,7 +356,7 @@ class TestSnowflakeDailyUsageThresholdAlerts(BaseSnowflakeIntegrationTestCase):
         alert = self.cs.fetchone()
         self.assertEqual(alert[0], "high_daily_usage")
         self.assertEqual(
-            alert[1].isoformat(), "2024-01-03T00:00:00+00:00"
+            alert[1], start_streak.replace(hour=0, minute=0, second=0, microsecond=0)
         )  # START_TIME should match the start of the streak
         self.assertIsNone(
             alert[2]
