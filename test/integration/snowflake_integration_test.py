@@ -331,21 +331,62 @@ class TestSnowflakeDailyUsageThresholdAlerts(BaseSnowflakeIntegrationTestCase):
         )  # START_TIME should match the start of the streak
         self.assertEqual(
             alert[2].isoformat(), "2024-01-06T00:00:00+00:00"
-        )  # IS_ACTIVE should be false, so end_time should be NULL
+        )  # IS_ACTIVE should be false, so end_time should be populated
 
-    # def test_gap_in_usage_creates_two_alerts(self):
-    #     device_id = "gap_device"
+    def test_alert_triggers_on_high_daily_usage_and_sets_as_active(self):
+        self._assert_num_rows(self.test_meter_alerts_table, 0)
+        device_id = "high_usage_device"
+        # Two days of high usage to create a 48 hour streak, no low usage after, status should be active
+        start_streak = self.now - datetime.timedelta(days=7)
+        self._insert_reading_streak(device_id, start_streak, 24 * 2, 100)
 
-    #     # 2 days over, 1 day under, 2 days over
-    #     self._insert_daily_usage(device_id, 2, 600) # Days 1, 2
-    #     # Day 3 (below threshold) - nothing inserted
-    #     self._insert_daily_usage(device_id, 2, 600) # Days 4, 5
-    #     # The logic adds 1 day to the end of the streak as the "end time"
+        self.snowflake_sink._upsert_daily_usage_threshold_alerts(
+            self.conn,
+            start_streak,
+            self.now,
+            org_id="org1",
+            meter_alerts_table_name=self.test_meter_alerts_table,
+            readings_table_name=self.test_readings_table,
+        )
 
-    #     self.snowflake_sink._upsert_high_usage_alerts(self.conn, datetime.datetime(2026, 1, 1), datetime.datetime(2026, 1, 10))
+        self._assert_num_rows(self.test_meter_alerts_table, 1)
+        self.cs.execute(
+            f"SELECT alert_type, start_time, end_time FROM {self.test_meter_alerts_table}"
+        )
+        alert = self.cs.fetchone()
+        self.assertEqual(alert[0], "high_daily_usage")
+        self.assertEqual(
+            alert[1].isoformat(), "2024-01-03T00:00:00+00:00"
+        )  # START_TIME should match the start of the streak
+        self.assertIsNone(
+            alert[2]
+        )  # IS_ACTIVE should be true, so end_time should be NULL
 
-    #     # Should be two distinct alerts because the gap broke the streak
-    #     self._assert_num_rows("meter_alerts", 2)
+    def test_gap_in_usage_creates_two_alerts(self):
+        device_id = "gap_device"
+        self._assert_num_rows(self.test_meter_alerts_table, 0)
+
+        # 2 days over, 1 day under, 2 days over
+        start_streak = pytz.UTC.localize(datetime.datetime(2024, 1, 1, 0, 0))
+        self._insert_reading_streak(device_id, start_streak, 24 * 2, 100)
+        self._insert_reading_streak(
+            device_id, start_streak + datetime.timedelta(days=2), 24, 0.1
+        )
+        self._insert_reading_streak(
+            device_id, start_streak + datetime.timedelta(days=3), 24 * 2, 100
+        )
+
+        self.snowflake_sink._upsert_daily_usage_threshold_alerts(
+            self.conn,
+            start_streak,
+            self.now,
+            org_id="org1",
+            meter_alerts_table_name=self.test_meter_alerts_table,
+            readings_table_name=self.test_readings_table,
+        )
+
+        # Should be two distinct alerts because the gap broke the streak
+        self._assert_num_rows(self.test_meter_alerts_table, 2)
 
 
 class TestSnowflakeContinuousFlowAlerts(BaseSnowflakeIntegrationTestCase):
