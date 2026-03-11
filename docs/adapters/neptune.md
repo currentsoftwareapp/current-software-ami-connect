@@ -26,7 +26,7 @@ python cli.py config add-source my_utility neptune America/Los_Angeles --config 
 
 Example:
 ```
-python cli.py config update-secret my_utility --source-type neptune --secret api-key=my_api_key --secret site-id=1234 --secret client-id=api-client_my_client --secret client_secret=my_secret
+python cli.py config update-secret my_utility --source-type neptune --secret api-key=my_api_key --secret site-id=1234 --secret client-id=api-client_my_client --secret client-secret=my_secret
 ```
 
 ## Notes
