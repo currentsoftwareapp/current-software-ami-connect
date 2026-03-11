@@ -545,9 +545,18 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
         This method detects devices that have a total daily usage above a certain threshold for at least 1 day.
         """
         min_date_to_process = min_date - timedelta(days=7)
-        threshold_for_high_daily_usage = 20
+
+        # Hardcoded per org for now
+        threshold_for_high_daily_usage = {
+            "current_aeneas": 20,
+            "current_bakman": 250,
+            "current_sierra": 25,
+            "current_arlington": 90,
+            "current_jewell": 750,
+        }.get(org_id, 100)
+
         logger.info(
-            f"Detecting high daily usage flows of at least {threshold_for_high_daily_usage} for org_id {org_id} on readings between {min_date_to_process} and {max_date}."
+            f"Detecting high daily usage flows of at least {threshold_for_high_daily_usage} units for org_id {org_id} on readings between {min_date_to_process} and {max_date}."
         )
         sql = f"""
             create or replace temporary table stage_daily_usage_thresholds
