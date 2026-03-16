@@ -330,7 +330,9 @@ class TestSnowflakeDailyUsageThresholdAlerts(BaseSnowflakeIntegrationTestCase):
             alert[1], start_streak.replace(hour=0, minute=0, second=0, microsecond=0)
         )  # START_TIME should match the start of the streak
         self.assertEqual(
-            alert[2], start_streak.replace(hour=0, minute=0, second=0, microsecond=0) + datetime.timedelta(days=3)
+            alert[2],
+            start_streak.replace(hour=0, minute=0, second=0, microsecond=0)
+            + datetime.timedelta(days=3),
         )  # IS_ACTIVE should be false, so end_time should be populated
 
     def test_alert_triggers_on_high_daily_usage_and_sets_as_active(self):

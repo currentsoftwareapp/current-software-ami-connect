@@ -565,14 +565,17 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 SELECT 
                     org_id,
                     device_id,
-                    date_trunc('day', flowtime) AS usage_date,
+                    MIN(date_trunc('day', flowtime)) AS usage_date,
                     sum(interval_value) AS total_daily_usage
                 FROM {readings_table_name}
                 WHERE 1=1
                 and org_id = ?
                 and flowtime::date >= ?
                 and flowtime::date <= ?
-                GROUP BY 1, 2, 3
+                GROUP BY 
+                    org_id, 
+                    device_id, 
+                    date_trunc('day', flowtime)::timestamp_ntz
             ),
             -- Create streaks (islands) of days exceeding the threshold
             streaks AS (
@@ -582,7 +585,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                     usage_date,
                     total_daily_usage,
                     -- If usage > threshold, we assign a group ID by subtracting a row_number from the date
-                    DATEADD('day', -ROW_NUMBER() OVER (PARTITION BY org_id, device_id ORDER BY usage_date), usage_date) AS streak_group
+                    DATEADD('day', -ROW_NUMBER() OVER (PARTITION BY org_id, device_id ORDER BY usage_date), usage_date::timestamp_ntz) AS streak_group
                 FROM daily_usage
                 WHERE total_daily_usage > ? -- USAGE THRESHOLD HERE
             ),
