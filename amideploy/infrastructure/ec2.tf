@@ -84,7 +84,9 @@ resource "aws_cloudwatch_metric_alarm" "airflow_server_cpu_alarm" {
   statistic           = "Average"
   threshold           = 80
   alarm_description   = "Alert when AMI Connect Airflow server CPU exceeds 80%"
+  treat_missing_data  = "notBreaching"
   alarm_actions       = [aws_sns_topic.ami_connect_airflow_alerts.arn]
+  ok_actions          = [aws_sns_topic.ami_connect_airflow_alerts.arn]
   dimensions = {
     InstanceId = aws_instance.ami_connect_airflow_server.id
   }

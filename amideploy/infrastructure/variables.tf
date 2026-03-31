@@ -28,6 +28,10 @@ variable "ami_connect_airflow_server_instance_size" {
 variable "ssh_ip_allowlist" {
   description = "IP CIDR blocks that can SSH into our AWS resources. ex: [192.168.1.1/32]"
   type        = list(string)
+  validation {
+    condition     = alltrue([for cidr in var.ssh_ip_allowlist : can(cidrnetmask(cidr))])
+    error_message = "All elements in ssh_ip_allowlist must be valid CIDR blocks, e.g. end in '/32'."
+  }
 }
 
 variable "ami_connect_s3_bucket_name" {
