@@ -2,6 +2,7 @@ from datetime import datetime
 import logging
 import tempfile
 
+import psycopg2
 import snowflake.connector
 
 from amiadapters.configuration import database
@@ -12,8 +13,9 @@ logger = logging.getLogger(__name__)
 
 def get_configuration(secrets: dict) -> dict:
     logger.info(f"Getting configuration from database.")
-    connection = create_snowflake_from_secrets(secrets)
-    return database.get_configuration(connection)
+    snowflake_connection = create_snowflake_from_secrets(secrets)
+    utility_billing_settings_connection = create_utility_billing_settings_connection_from_secrets(secrets)
+    return database.get_configuration(snowflake_connection, utility_billing_settings_connection)
 
 
 def add_source_configuration(new_source_configuration: dict):
@@ -176,4 +178,19 @@ def create_snowflake_from_secrets(secrets: dict):
         database=snowflake_credentials["database"],
         schema=snowflake_credentials["schema"],
         role=snowflake_credentials["role"],
+    )
+
+
+def create_utility_billing_settings_connection(connection_url: str):
+    return psycopg2.connect(connection_url)
+
+
+def create_utility_billing_settings_connection_from_secrets(secrets: dict):
+    # Temp do not commit
+    secrets["settings_connection_url"] = "postgresql://postgres:postgres@localhost:54322/postgres"
+
+    if "settings_connection_url" not in secrets:
+        raise ValueError("No credentials found to connect to Utility Billing settings.")
+    return create_utility_billing_settings_connection(
+        connection_url=secrets["settings_connection_url"]
     )

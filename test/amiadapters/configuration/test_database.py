@@ -170,7 +170,7 @@ class TestDatabase(BaseTestCase):
         mock_fetch_table.side_effect = self.fake_fetch
 
         sources, sinks, pipeline_config, notifications, backfills = get_configuration(
-            MagicMock()
+            snowflake_connection=MagicMock(), utility_billing_settings_connection=MagicMock()
         )
 
         with open(self.get_fixture_path("all-config.yaml"), "r") as f:

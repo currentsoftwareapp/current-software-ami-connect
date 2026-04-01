@@ -5,7 +5,6 @@ from typing import Dict, List, Tuple
 
 from amiadapters.configuration.models import (
     ConfiguredAMISourceTypes,
-    MetricsBackendType,
     PipelineConfiguration,
     SourceConfigBase,
 )
@@ -13,7 +12,7 @@ from amiadapters.configuration.models import (
 logger = logging.getLogger(__name__)
 
 
-def get_configuration(snowflake_connection) -> Tuple[
+def get_configuration(snowflake_connection, utility_billing_settings_connection) -> Tuple[
     List[Dict],
     List[Dict],
     PipelineConfiguration,
@@ -25,6 +24,13 @@ def get_configuration(snowflake_connection) -> Tuple[
     Given a Snowflake connection, load all raw configuration objects from the database.
     We return as dicts and lists to match the YAML config system's API.
     """
+    sources, sinks, pipeline_config, notifications, backfills = _get_configuration_from_snowflake(snowflake_connection)
+    ub_sources = _get_utility_billing_settings_from_postgres(utility_billing_settings_connection)
+    sources = _merge_snowflake_and_utility_billing_settings(sources, ub_sources)
+    return sources, sinks, pipeline_config, notifications, backfills
+
+
+def _get_configuration_from_snowflake(snowflake_connection):
     tables = [
         "configuration_pipeline",
         "configuration_sources",
@@ -96,6 +102,20 @@ def get_configuration(snowflake_connection) -> Tuple[
 
     return sources, sinks, pipeline_config, notifications, backfills
 
+
+def _get_utility_billing_settings_from_postgres(utility_billing_settings_connection) -> Dict:
+    cursor = utility_billing_settings_connection.cursor()
+    cursor.execute("SELECT setting_key, setting_value FROM utility_billing_settings")
+    rows = cursor.fetchall()
+    settings = {row[0]: row[1] for row in rows}
+    return settings
+
+
+def _merge_snowflake_and_utility_billing_settings(snowflake_sources, utility_billing_sources):
+    result = snowflake_sources.copy()
+    for source in snowflake_sources:
+        continue
+    return result
 
 def _fetch_table(cursor, table_name):
     """Fetch all rows from a configuration table and return as list of dicts."""
