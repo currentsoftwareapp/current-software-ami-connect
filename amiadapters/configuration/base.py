@@ -14,8 +14,12 @@ logger = logging.getLogger(__name__)
 def get_configuration(secrets: dict) -> dict:
     logger.info(f"Getting configuration from database.")
     snowflake_connection = create_snowflake_from_secrets(secrets)
-    utility_billing_settings_connection = create_utility_billing_settings_connection_from_secrets(secrets)
-    return database.get_configuration(snowflake_connection, utility_billing_settings_connection)
+    utility_billing_settings_connection = (
+        create_utility_billing_settings_connection_from_secrets(secrets)
+    )
+    return database.get_configuration(
+        snowflake_connection, utility_billing_settings_connection
+    )
 
 
 def add_source_configuration(new_source_configuration: dict):
@@ -187,7 +191,9 @@ def create_utility_billing_settings_connection(connection_url: str):
 
 def create_utility_billing_settings_connection_from_secrets(secrets: dict):
     # Temp do not commit
-    secrets["settings_connection_url"] = "postgresql://postgres:postgres@localhost:54322/postgres"
+    secrets["settings_connection_url"] = (
+        "postgresql://postgres:postgres@localhost:54322/postgres"
+    )
 
     if "settings_connection_url" not in secrets:
         raise ValueError("No credentials found to connect to Utility Billing settings.")

@@ -12,7 +12,9 @@ from amiadapters.configuration.models import (
 logger = logging.getLogger(__name__)
 
 
-def get_configuration(snowflake_connection, utility_billing_settings_connection) -> Tuple[
+def get_configuration(
+    snowflake_connection, utility_billing_settings_connection
+) -> Tuple[
     List[Dict],
     List[Dict],
     PipelineConfiguration,
@@ -24,8 +26,12 @@ def get_configuration(snowflake_connection, utility_billing_settings_connection)
     Given a Snowflake connection, load all raw configuration objects from the database.
     We return as dicts and lists to match the YAML config system's API.
     """
-    sources, sinks, pipeline_config, notifications, backfills = _get_configuration_from_snowflake(snowflake_connection)
-    ub_sources = _get_utility_billing_settings_from_postgres(utility_billing_settings_connection)
+    sources, sinks, pipeline_config, notifications, backfills = (
+        _get_configuration_from_snowflake(snowflake_connection)
+    )
+    ub_sources = _get_utility_billing_settings_from_postgres(
+        utility_billing_settings_connection
+    )
     sources = _merge_snowflake_and_utility_billing_settings(sources, ub_sources)
     return sources, sinks, pipeline_config, notifications, backfills
 
@@ -103,19 +109,53 @@ def _get_configuration_from_snowflake(snowflake_connection):
     return sources, sinks, pipeline_config, notifications, backfills
 
 
-def _get_utility_billing_settings_from_postgres(utility_billing_settings_connection) -> Dict:
+def _get_utility_billing_settings_from_postgres(
+    utility_billing_settings_connection,
+) -> Dict:
     cursor = utility_billing_settings_connection.cursor()
-    cursor.execute("SELECT setting_key, setting_value FROM utility_billing_settings")
-    rows = cursor.fetchall()
-    settings = {row[0]: row[1] for row in rows}
-    return settings
+    cursor.execute("""
+                   SELECT 
+                    o."id", 
+                    o."snowflakeId", 
+                    op."meterAlertHighUsageThreshold", 
+                    op."meterAlertHighUsageUnit"
+                   FROM public."Organization" o
+                   JOIN public."OrganizationPreferences" op ON o."id" = op."organizationId"
+                   WHERE o."snowflakeId" IS NOT NULL
+                   """)
+    columns = [col[0].lower() for col in cursor.description]
+    return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-def _merge_snowflake_and_utility_billing_settings(snowflake_sources, utility_billing_sources):
-    result = snowflake_sources.copy()
+def _merge_snowflake_and_utility_billing_settings(
+    snowflake_sources, utility_billing_sources
+):
+    """
+    Merge Utility Billiing app's settings from Postgresql with the sources from Snowflake.
+    As of this writing, that means stitching the meter alerts for each organization into their source object.
+    """
     for source in snowflake_sources:
-        continue
-    return result
+        # Add meter alerts object to source config
+        source["meter_alerts"] = {}
+        # Find matching configuration from utility billing settings, matching on snowflake_id = org_id
+        if matching := [
+            i for i in utility_billing_sources if i["snowflake_id"] == source["org_id"]
+        ]:
+            if len(matching) != 1:
+                raise ValueError(
+                    f"Expected one matching configuration from postgres for {source["org_id"]}, got {len(matching)}"
+                )
+            matching_ub_source = matching[0]
+            # Usage threshold alert
+            if matching_ub_source.get(
+                "meter_alert_high_usage_threshold"
+            ) and matching_ub_source.get("meter_alert_high_usage_unit"):
+                source["meter_alerts"]["high_usage"] = {
+                    "threshold": matching_ub_source["meter_alert_high_usage_threshold"],
+                    "unit": matching_ub_source["meter_alert_high_usage_unit"],
+                }
+    return snowflake_sources
+
 
 def _fetch_table(cursor, table_name):
     """Fetch all rows from a configuration table and return as list of dicts."""

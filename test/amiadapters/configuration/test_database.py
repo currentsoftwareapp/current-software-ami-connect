@@ -165,12 +165,42 @@ class TestDatabase(BaseTestCase):
             ]
         raise Exception(table_name)
 
+    def fake_fetch_postgres(self, conn):
+        return [
+            # Matches beacon
+            {
+                "organization_id": 1,
+                "snowflake_id": "my_beacon_utility",
+                "meter_alert_high_usage_threshold": 100,
+                "meter_alert_high_usage_unit": "CF",
+            },
+            # Matches subeca but no usage threshold settings
+            {
+                "organization_id": 2,
+                "snowflake_id": "my_subeca_utility",
+                "meter_alert_high_usage_threshold": None,
+                "meter_alert_high_usage_unit": "CF",
+            },
+            # Does not match
+            {
+                "organization_id": 3,
+                "snowflake_id": "some_random_utility",
+                "meter_alert_high_usage_threshold": 100,
+                "meter_alert_high_usage_unit": "CF",
+            },
+        ]
+
+    @patch(
+        "amiadapters.configuration.database._get_utility_billing_settings_from_postgres"
+    )
     @patch("amiadapters.configuration.database._fetch_table")
-    def test_get_database_config(self, mock_fetch_table):
+    def test_get_database_config(self, mock_fetch_table, mock_fetch_postgres_table):
         mock_fetch_table.side_effect = self.fake_fetch
+        mock_fetch_postgres_table.side_effect = self.fake_fetch_postgres
 
         sources, sinks, pipeline_config, notifications, backfills = get_configuration(
-            snowflake_connection=MagicMock(), utility_billing_settings_connection=MagicMock()
+            snowflake_connection=MagicMock(),
+            utility_billing_settings_connection=MagicMock(),
         )
 
         with open(self.get_fixture_path("all-config.yaml"), "r") as f:
