@@ -5,9 +5,8 @@ sources:
   timezone: America/Los_Angeles
   use_raw_data_cache: False
   meter_alerts:
-    high_usage:
-      threshold: 100
-      unit: "CF"
+    daily_high_usage_threshold: 100
+    daily_high_usage_unit: "CF"
   sinks:
   - my_snowflake_instance
 - type: sentryx

@@ -23,6 +23,7 @@ from amiadapters.configuration.models import (
     ConfiguredStorageSink,
     IntermediateOutputType,
     LocalIntermediateOutputControllerConfiguration,
+    MeterAlertConfiguration,
     MetricsConfigurationBase,
     NotificationsConfiguration,
     PipelineConfiguration,
@@ -190,7 +191,15 @@ class AMIAdapterConfiguration:
             secrets = SourceSecretsBase.from_dict(source_type, this_source_secrets)
 
             # Parse settings secrets for data source
-            meter_alerts = source.get("meter_alerts", {})
+            this_meter_alerts_config = source.get("meter_alerts", {})
+            meter_alerts = MeterAlertConfiguration(
+                daily_high_usage_threshold=this_meter_alerts_config.get(
+                    "daily_high_usage_threshold"
+                ),
+                daily_high_usage_unit=this_meter_alerts_config.get(
+                    "daily_high_usage_unit"
+                ),
+            )
 
             # Join any sinks tied to this source
             sink_ids = source.get("sinks", [])

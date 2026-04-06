@@ -153,9 +153,13 @@ def _merge_snowflake_and_utility_billing_settings(
             if matching_ub_source.get(
                 "meteralerthighusagethreshold"
             ) and matching_ub_source.get("meteralerthighusageunit"):
-                source["meter_alerts"]["high_usage"] = {
-                    "threshold": matching_ub_source["meteralerthighusagethreshold"],
-                    "unit": matching_ub_source["meteralerthighusageunit"],
+                source["meter_alerts"] = {
+                    "daily_high_usage_threshold": matching_ub_source[
+                        "meteralerthighusagethreshold"
+                    ],
+                    "daily_high_usage_unit": matching_ub_source[
+                        "meteralerthighusageunit"
+                    ],
                 }
     return snowflake_sources
 
