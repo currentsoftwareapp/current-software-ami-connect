@@ -40,7 +40,6 @@ from amiadapters.configuration.env import set_global_aws_profile, set_global_aws
 from amiadapters.configuration.models import (
     IntermediateOutputType,
     MetricsBackendType,
-    SettingSecrets,
     SinkSecretsBase,
     SourceSecretsBase,
 )
@@ -617,15 +616,15 @@ def update_secret(
     ],
     sink_type: Annotated[
         str,
-        typer.Option(help="Type of sink, e.g. 'snowflake'."),
+        typer.Option(
+            help="Type of sink, e.g. 'snowflake'. Must be specified if secret_type is 'sink'."
+        ),
     ] = None,
     source_type: Annotated[
         str,
-        typer.Option(help="Type of source, e.g. 'subeca'."),
-    ] = None,
-    setting_type: Annotated[
-        str,
-        typer.Option(help="Type of setting, e.g. 'utility_billing'."),
+        typer.Option(
+            help="Type of source, e.g. 'subeca'. Must be specified if secret_type is 'source'."
+        ),
     ] = None,
     profile: ANNOTATION__PROFILE = None,
     # Type-specific secrets
@@ -642,22 +641,15 @@ def update_secret(
     """
     if not secret_name:
         raise typer.BadParameter("secret_name is required")
-    if len([t for t in [sink_type, source_type, setting_type] if t is not None]) > 1:
+    if sink_type and source_type:
         raise typer.BadParameter(
-            "Can only specify one of sink_type or source_type or setting_type."
+            "Can only specify one of sink_type or source_type, not both."
         )
+    if not sink_type and not source_type:
+        raise typer.BadParameter("Must specify one of sink_type or source_type.")
 
     # Set secret type based on which type argument is provided
-    if source_type:
-        secret_type = SecretType.SOURCES.value
-    elif sink_type:
-        secret_type = SecretType.SINKS.value
-    elif setting_type:
-        secret_type = SecretType.SETTINGS.value
-    else:
-        raise typer.BadParameter(
-            "Must specify one of sink_type or source_type or setting_type."
-        )
+    secret_type = SecretType.SOURCES.value if source_type else SecretType.SINKS.value
 
     # Parse the key=value pairs into a dictionary. These are the type-specific secrets.
     new_secrets = parse_kv_pairs(secrets)
@@ -678,10 +670,8 @@ def update_secret(
     # Create the appropriate secrets object based on secret type and adapter type
     if secret_type == SecretType.SOURCES.value:
         secrets = SourceSecretsBase.from_dict(source_type, new_secrets)
-    elif secret_type == SecretType.SINKS.value:
+    else:
         secrets = SinkSecretsBase.from_dict(sink_type, new_secrets)
-    elif secret_type == SecretType.SETTINGS.value:
-        secrets = SettingSecrets.from_dict(setting_type, new_secrets)
 
     update_secret_configuration(secret_type, secret_name, secrets)
 

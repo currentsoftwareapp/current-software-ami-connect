@@ -29,15 +29,15 @@ def get_configuration(
     sources, sinks, pipeline_config, notifications, backfills = (
         _get_configuration_from_snowflake(snowflake_connection)
     )
-    
+
     ub_sources = []
     if utility_billing_settings_connection:
         ub_sources = _get_utility_billing_settings_from_postgres(
             utility_billing_settings_connection
         )
-    
+
     sources = _merge_snowflake_and_utility_billing_settings(sources, ub_sources)
-    
+
     return sources, sinks, pipeline_config, notifications, backfills
 
 
@@ -144,7 +144,7 @@ def _merge_snowflake_and_utility_billing_settings(
         source["meter_alerts"] = {}
         # Find matching configuration from utility billing settings, matching on snowflake_id = org_id
         if matching := [
-            i for i in utility_billing_sources if i["snowflake_id"] == source["org_id"]
+            i for i in utility_billing_sources if i["snowflakeid"] == source["org_id"]
         ]:
             if len(matching) != 1:
                 raise ValueError(
@@ -153,11 +153,11 @@ def _merge_snowflake_and_utility_billing_settings(
             matching_ub_source = matching[0]
             # Usage threshold alert
             if matching_ub_source.get(
-                "meter_alert_high_usage_threshold"
-            ) and matching_ub_source.get("meter_alert_high_usage_unit"):
+                "meteralerthighusagethreshold"
+            ) and matching_ub_source.get("meteralerthighusageunit"):
                 source["meter_alerts"]["high_usage"] = {
-                    "threshold": matching_ub_source["meter_alert_high_usage_threshold"],
-                    "unit": matching_ub_source["meter_alert_high_usage_unit"],
+                    "threshold": matching_ub_source["meteralerthighusagethreshold"],
+                    "unit": matching_ub_source["meteralerthighusageunit"],
                 }
     return snowflake_sources
 

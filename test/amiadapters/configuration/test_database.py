@@ -169,24 +169,24 @@ class TestDatabase(BaseTestCase):
         return [
             # Matches beacon
             {
-                "organization_id": 1,
-                "snowflake_id": "my_beacon_utility",
-                "meter_alert_high_usage_threshold": 100,
-                "meter_alert_high_usage_unit": "CF",
+                "id": 1,
+                "snowflakeid": "my_beacon_utility",
+                "meteralerthighusagethreshold": 100,
+                "meteralerthighusageunit": "CF",
             },
             # Matches subeca but no usage threshold settings
             {
-                "organization_id": 2,
-                "snowflake_id": "my_subeca_utility",
-                "meter_alert_high_usage_threshold": None,
-                "meter_alert_high_usage_unit": "CF",
+                "id": 2,
+                "snowflakeid": "my_subeca_utility",
+                "meteralerthighusagethreshold": None,
+                "meteralerthighusageunit": "CF",
             },
             # Does not match
             {
-                "organization_id": 3,
-                "snowflake_id": "some_random_utility",
-                "meter_alert_high_usage_threshold": 100,
-                "meter_alert_high_usage_unit": "CF",
+                "id": 3,
+                "snowflakeid": "some_random_utility",
+                "meteralerthighusagethreshold": 100,
+                "meteralerthighusageunit": "CF",
             },
         ]
 

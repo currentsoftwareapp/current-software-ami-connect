@@ -57,6 +57,7 @@ class MeterAlertConfiguration:
     """
     Configuration for sending meter alerts.
     """
+
     daily_high_usage_threshold: float
     daily_high_usage_unit: str
 
@@ -162,44 +163,6 @@ class SecretsBase:
             raise ValueError(
                 f"{self.__class__.__name__} missing required fields: {missing}"
             )
-
-
-class SettingSecrets(SecretsBase):
-    """
-    Base class for pipeline-level settings with secret values.
-    """
-
-    @classmethod
-    def from_dict(
-        cls, setting_type: str, raw_secret_config: dict
-    ) -> "SettingSecrets":
-        if not raw_secret_config:
-            raise ValueError(f"Found no secrets for setting type {setting_type}")
-
-        match setting_type:
-            case "utility_billing":
-                secret_cls = UtilityBillingSecrets
-            case _:
-                raise ValueError(f"Unrecognized setting type {setting_type}")
-
-        # Copy so we don't mutate caller data
-        kwargs = dict(raw_secret_config)
-        config = secret_cls(**kwargs)
-        config.validate()
-
-        return config
-
-
-@dataclass
-class UtilityBillingSecrets(SettingSecrets):
-    """
-    For connecting to the Utility Billing app.
-    """
-
-    connection_url: str
-
-    def validate(self) -> None:
-        self._require("connection_url")
 
 
 class SinkSecretsBase(SecretsBase):
