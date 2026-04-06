@@ -183,6 +183,9 @@ class AMIAdapterConfiguration:
             this_source_secrets = configured_secrets.get("sources", {}).get(org_id)
             secrets = SourceSecretsBase.from_dict(source_type, this_source_secrets)
 
+            # Parse settings secrets for data source
+            meter_alerts = source.get("meter_alerts", {})
+
             # Join any sinks tied to this source
             sink_ids = source.get("sinks", [])
             sinks = []
@@ -198,6 +201,7 @@ class AMIAdapterConfiguration:
             raw_source_config["sinks"] = sinks
             raw_source_config["task_output_controller"] = task_output_controller
             raw_source_config["metrics"] = metrics
+            raw_source_config["meter_alerts"] = meter_alerts
 
             # Create the configured source
             configured_source = SourceConfigBase.from_dict(raw_source_config)

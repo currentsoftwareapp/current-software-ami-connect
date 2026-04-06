@@ -29,10 +29,15 @@ def get_configuration(
     sources, sinks, pipeline_config, notifications, backfills = (
         _get_configuration_from_snowflake(snowflake_connection)
     )
-    ub_sources = _get_utility_billing_settings_from_postgres(
-        utility_billing_settings_connection
-    )
+    
+    ub_sources = []
+    if utility_billing_settings_connection:
+        ub_sources = _get_utility_billing_settings_from_postgres(
+            utility_billing_settings_connection
+        )
+    
     sources = _merge_snowflake_and_utility_billing_settings(sources, ub_sources)
+    
     return sources, sinks, pipeline_config, notifications, backfills
 
 
@@ -304,6 +309,7 @@ def _create_and_validate_source_config_from_dict(
     c["task_output_controller"] = None
     c["metrics"] = None
     c["sinks"] = []
+    c["meter_alerts"] = {}
     new_source = cls.from_dict(c)
     new_source.validate()
     return new_source

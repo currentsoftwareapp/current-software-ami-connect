@@ -53,6 +53,15 @@ class NotificationsConfiguration:
 
 
 @dataclass
+class MeterAlertConfiguration:
+    """
+    Configuration for sending meter alerts.
+    """
+    daily_high_usage_threshold: float
+    daily_high_usage_unit: str
+
+
+@dataclass
 class SftpConfiguration:
     """
     Configuration for connecting to an SFTP server,
@@ -131,7 +140,7 @@ class CloudwatchMetricsConfiguration(MetricsConfigurationBase):
 class SecretsBase:
     """
     Base class for secrets dataclasses, with convenience method to convert to JSON.
-    Secrets dataclasses define the secrets needed for a particular source or sink type.
+    Secrets dataclasses define the secrets needed, e.g. for a particular source or sink type.
     They are serialized directly to JSON for storage in AWS Secrets Manager.
     """
 
@@ -142,6 +151,10 @@ class SecretsBase:
         return
 
     def _require(self, *fields: str) -> None:
+        """
+        Utility method for validating that required fields are present and not None.
+        Subclasses often call this from their validate() method.
+        """
         missing = [
             f for f in fields if not hasattr(self, f) or getattr(self, f) is None
         ]
@@ -149,6 +162,44 @@ class SecretsBase:
             raise ValueError(
                 f"{self.__class__.__name__} missing required fields: {missing}"
             )
+
+
+class SettingSecrets(SecretsBase):
+    """
+    Base class for pipeline-level settings with secret values.
+    """
+
+    @classmethod
+    def from_dict(
+        cls, setting_type: str, raw_secret_config: dict
+    ) -> "SettingSecrets":
+        if not raw_secret_config:
+            raise ValueError(f"Found no secrets for setting type {setting_type}")
+
+        match setting_type:
+            case "utility_billing":
+                secret_cls = UtilityBillingSecrets
+            case _:
+                raise ValueError(f"Unrecognized setting type {setting_type}")
+
+        # Copy so we don't mutate caller data
+        kwargs = dict(raw_secret_config)
+        config = secret_cls(**kwargs)
+        config.validate()
+
+        return config
+
+
+@dataclass
+class UtilityBillingSecrets(SettingSecrets):
+    """
+    For connecting to the Utility Billing app.
+    """
+
+    connection_url: str
+
+    def validate(self) -> None:
+        self._require("connection_url")
 
 
 class SinkSecretsBase(SecretsBase):
@@ -433,6 +484,7 @@ class SourceConfigBase:
     sinks: List[ConfiguredStorageSink]
     task_output_controller: IntermediateOutputControllerConfiguration
     metrics: MetricsConfigurationBase
+    meter_alerts: MeterAlertConfiguration
 
     def validate(self) -> None:
         """
@@ -488,7 +540,6 @@ class SourceConfigBase:
         if "database_port" in kwargs:
             kwargs["database_port"] = int(kwargs["database_port"])
         # ---- end transforms ----
-
         config = config_cls(**kwargs)
         config.validate()
 

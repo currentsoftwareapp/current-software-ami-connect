@@ -190,13 +190,8 @@ def create_utility_billing_settings_connection(connection_url: str):
 
 
 def create_utility_billing_settings_connection_from_secrets(secrets: dict):
-    # Temp do not commit
-    secrets["settings_connection_url"] = (
-        "postgresql://postgres:postgres@localhost:54322/postgres"
-    )
-
-    if "settings_connection_url" not in secrets:
-        raise ValueError("No credentials found to connect to Utility Billing settings.")
-    return create_utility_billing_settings_connection(
-        connection_url=secrets["settings_connection_url"]
-    )
+    connection_url = secrets.get("settings", {}).get("utility_billing", {}).get("connection_url")
+    if not (connection_url):
+        logger.info("No credentials found to connect to Utility Billing settings, skipping.")
+        return None
+    return create_utility_billing_settings_connection(connection_url=connection_url)
