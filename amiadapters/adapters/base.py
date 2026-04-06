@@ -7,7 +7,10 @@ from typing import List, Tuple
 from pytz import timezone
 from pytz.tzinfo import DstTzInfo
 
-from amiadapters.configuration.models import BackfillConfiguration
+from amiadapters.configuration.models import (
+    BackfillConfiguration,
+    MeterAlertConfiguration,
+)
 from amiadapters.configuration.models import ConfiguredStorageSink
 from amiadapters.configuration.models import ConfiguredStorageSinkType
 from amiadapters.configuration.models import IntermediateOutputType
@@ -53,6 +56,7 @@ class BaseAMIAdapter(ABC):
         org_timezone: DstTzInfo,
         pipeline_configuration: PipelineConfiguration,
         configured_task_output_controller,
+        # configured_meter_alerts: MeterAlertConfiguration,
         configured_metrics: MetricsConfigurationBase,
         configured_sinks: List[ConfiguredStorageSink] = None,
         raw_snowflake_loader: RawSnowflakeLoader = None,
@@ -76,6 +80,7 @@ class BaseAMIAdapter(ABC):
             self.org_id,
             self.org_timezone,
             raw_snowflake_loader,
+            None,  # TODO
             self.metrics,
         )
 
@@ -445,6 +450,7 @@ class BaseAMIAdapter(ABC):
         org_id: str,
         org_timezone: DstTzInfo,
         raw_snowflake_loader: RawSnowflakeLoader,
+        meter_alerts: MeterAlertConfiguration,
         metrics: Metrics,
     ) -> List[BaseAMIStorageSink]:
         result = []
@@ -457,6 +463,7 @@ class BaseAMIAdapter(ABC):
                         org_timezone,
                         sink,
                         raw_snowflake_loader,
+                        meter_alerts,
                         metrics,
                     )
                 )

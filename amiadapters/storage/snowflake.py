@@ -9,7 +9,10 @@ from pytz.tzinfo import DstTzInfo
 from amiadapters.metrics.base import Metrics, seconds_since
 from amiadapters.models import GeneralMeterRead
 from amiadapters.models import GeneralMeter
-from amiadapters.configuration.models import ConfiguredStorageSink
+from amiadapters.configuration.models import (
+    ConfiguredStorageSink,
+    MeterAlertConfiguration,
+)
 from amiadapters.outputs.base import ExtractOutput
 from amiadapters.storage.base import BaseAMIStorageSink, BaseAMIDataQualityCheck
 
@@ -233,12 +236,13 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
         org_timezone: DstTzInfo,
         sink_config: ConfiguredStorageSink,
         raw_loader: RawSnowflakeLoader,
+        meter_alerts: MeterAlertConfiguration,
         metrics: Metrics,
     ):
         self.org_id = org_id
         self.org_timezone = org_timezone
         self.raw_loader = raw_loader
-        super().__init__(sink_config, metrics)
+        super().__init__(sink_config, meter_alerts, metrics)
 
     def store_raw(self, run_id: str, extract_outputs: ExtractOutput):
         """
@@ -544,19 +548,22 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
         """
         This method detects devices that have a total daily usage above a certain threshold for at least 1 day.
         """
+        daily_high_usage_threshold = self.meter_alerts.daily_high_usage_threshold
+        daily_high_usage_unit = self.meter_alerts.daily_high_usage_unit
+
+        if daily_high_usage_threshold is None or daily_high_usage_unit is None:
+            logger.info(
+                f"Skipping daily usage threshold alert detection for org_id {org_id} because invalid threshold configuration: daily_high_usage_threshold={daily_high_usage_threshold}, daily_high_usage_unit={daily_high_usage_unit}."
+            )
+            return
+
         min_date_to_process = min_date - timedelta(days=7)
 
-        # Hardcoded per org for now
-        threshold_for_high_daily_usage = {
-            "current_aeneas": 20,
-            "current_bakman": 250,
-            "current_sierra": 25,
-            "current_arlington": 90,
-            "current_jewell": 750,
-        }.get(org_id, 100)
+        # TODO convert to the correct unit. May need to query the latest read to get the unit.
+        converted_daily_high_daily_usage_threshold = daily_high_usage_threshold
 
         logger.info(
-            f"Detecting high daily usage flows of at least {threshold_for_high_daily_usage} units for org_id {org_id} on readings between {min_date_to_process} and {max_date}."
+            f"Detecting high daily usage flows of at least {converted_daily_high_daily_usage_threshold} units for org_id {org_id} on readings between {min_date_to_process} and {max_date}."
         )
         sql = f"""
             create or replace temporary table stage_daily_usage_thresholds
@@ -638,7 +645,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 org_id,
                 min_date_to_process,
                 max_date,
-                threshold_for_high_daily_usage,
+                converted_daily_high_daily_usage_threshold,
             ),
         )
 
