@@ -200,7 +200,7 @@ class TestDatabase(BaseTestCase):
 
         sources, sinks, pipeline_config, notifications, backfills = get_configuration(
             snowflake_connection=MagicMock(),
-            utility_billing_settings_connection=MagicMock(),
+            utility_billing_connection_url=MagicMock(),
         )
 
         with open(self.get_fixture_path("all-config.yaml"), "r") as f:

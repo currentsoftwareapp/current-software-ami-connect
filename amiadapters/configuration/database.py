@@ -12,9 +12,7 @@ from amiadapters.configuration.models import (
 logger = logging.getLogger(__name__)
 
 
-def get_configuration(
-    snowflake_connection, utility_billing_settings_connection
-) -> Tuple[
+def get_configuration(snowflake_connection, utility_billing_connection_url) -> Tuple[
     List[Dict],
     List[Dict],
     PipelineConfiguration,
@@ -31,9 +29,9 @@ def get_configuration(
     )
 
     ub_sources = []
-    if utility_billing_settings_connection:
+    if utility_billing_connection_url:
         ub_sources = _get_utility_billing_settings_from_postgres(
-            utility_billing_settings_connection
+            utility_billing_connection_url
         )
 
     sources = _merge_snowflake_and_utility_billing_settings(sources, ub_sources)

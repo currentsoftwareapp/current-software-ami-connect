@@ -14,7 +14,10 @@ from amiadapters.adapters.subeca import SubecaAdapter
 from amiadapters.adapters.xylem_moulton_niguel import XylemMoultonNiguelAdapter
 from amiadapters.adapters.xylem_sensus import XylemSensusAdapter
 from amiadapters.alerts.base import AmiConnectDagFailureNotifier
-from amiadapters.configuration.base import create_snowflake_from_secrets
+from amiadapters.configuration.base import (
+    create_snowflake_from_secrets,
+    create_utility_billing_settings_connection_from_env,
+)
 from amiadapters.configuration.models import (
     BackfillConfiguration,
     ConfiguredStorageSink,
@@ -111,8 +114,11 @@ class AMIAdapterConfiguration:
         # Get all secrets, including Snowflake creds used to get non-secret configuration
         secrets = get_secrets()
         connection = create_snowflake_from_secrets(secrets)
+        utility_billing_connection_url = (
+            create_utility_billing_settings_connection_from_env()
+        )
         sources, sinks, pipeline_configuration, notifications, backfills = (
-            get_configuration(connection)
+            get_configuration(connection, utility_billing_connection_url)
         )
 
         return cls._make_instance(
