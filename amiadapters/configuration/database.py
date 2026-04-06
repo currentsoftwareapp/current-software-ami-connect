@@ -115,26 +115,26 @@ def _get_configuration_from_snowflake(snowflake_connection):
 def _get_utility_billing_settings_from_postgres(
     utility_billing_settings_connection,
 ) -> Dict:
-    cursor = utility_billing_settings_connection.cursor()
-    cursor.execute("""
-                   SELECT 
-                    o."id", 
-                    o."snowflakeId", 
-                    op."meterAlertHighUsageThreshold", 
-                    op."meterAlertHighUsageUnit"
-                   FROM public."Organization" o
-                   JOIN public."OrganizationPreferences" op ON o."id" = op."organizationId"
-                   WHERE o."snowflakeId" IS NOT NULL
-                   """)
-    columns = [col[0].lower() for col in cursor.description]
-    return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    with utility_billing_settings_connection.cursor() as cursor:
+        cursor.execute("""
+                    SELECT 
+                        o."id", 
+                        o."snowflakeId", 
+                        op."meterAlertHighUsageThreshold", 
+                        op."meterAlertHighUsageUnit"
+                    FROM public."Organization" o
+                    JOIN public."OrganizationPreferences" op ON o."id" = op."organizationId"
+                    WHERE o."snowflakeId" IS NOT NULL
+                    """)
+        columns = [col[0].lower() for col in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
 def _merge_snowflake_and_utility_billing_settings(
     snowflake_sources, utility_billing_sources
 ):
     """
-    Merge Utility Billiing app's settings from Postgresql with the sources from Snowflake.
+    Merge Utility Billing app's settings from Postgresql with the sources from Snowflake.
     As of this writing, that means stitching the meter alerts for each organization into their source object.
     """
     for source in snowflake_sources:
@@ -146,7 +146,7 @@ def _merge_snowflake_and_utility_billing_settings(
         ]:
             if len(matching) != 1:
                 raise ValueError(
-                    f"Expected one matching configuration from postgres for {source["org_id"]}, got {len(matching)}"
+                    f"Expected one matching configuration from postgres for {source['org_id']}, got {len(matching)}"
                 )
             matching_ub_source = matching[0]
             # Usage threshold alert

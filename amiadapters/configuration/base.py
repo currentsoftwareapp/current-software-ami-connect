@@ -1,6 +1,7 @@
 from datetime import datetime
 import logging
 import tempfile
+from typing import Tuple
 
 import psycopg2
 import snowflake.connector
@@ -12,7 +13,7 @@ from amiadapters.configuration.env import get_global_utility_billing_connection_
 logger = logging.getLogger(__name__)
 
 
-def get_configuration(secrets: dict) -> dict:
+def get_configuration(secrets: dict) -> Tuple:
     logger.info(f"Getting configuration from database.")
     snowflake_connection = create_snowflake_from_secrets(secrets)
     utility_billing_settings_connection = (
