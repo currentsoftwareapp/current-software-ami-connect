@@ -102,3 +102,15 @@ class GeneralModelJSONEncoder(DataclassJSONEncoder):
         if isinstance(o, datetime):
             return o.isoformat()
         return super().default(o)
+
+
+class GeneralMeterUnitOfMeasure:
+    """
+    Normalized values for a meter's unit of measure.
+    """
+
+    CUBIC_FEET = "CF"
+    HUNDRED_CUBIC_FEET = "CCF"
+    GALLON = "GALLON"
+    GALLONS = "GALLONS"
+    KILO_GALLON = "KGAL"
