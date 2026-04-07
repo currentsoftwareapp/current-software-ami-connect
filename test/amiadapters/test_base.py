@@ -74,6 +74,7 @@ class TestBaseAdapter(BaseTestCase):
             # End after start
             self.adapter._validate_extract_range(self.range_end, self.range_start)
 
+    # TODO move these tests to the conversion utility func
     def test_map_reading__valid_ccf_conversion(self):
         value, unit = self.adapter.map_reading(12.5, "CCF")
         self.assertEqual(value, 1250)
