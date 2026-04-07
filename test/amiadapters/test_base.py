@@ -74,45 +74,12 @@ class TestBaseAdapter(BaseTestCase):
             # End after start
             self.adapter._validate_extract_range(self.range_end, self.range_start)
 
-    # TODO move these tests to the conversion utility func
-    def test_map_reading__valid_ccf_conversion(self):
+    def test_map_reading__delegates_to_conversions(self):
+        # Verify the adapter's map_reading delegates to the conversions module.
+        # Conversion logic is tested exhaustively in test/amiadapters/utils/test_conversions.py.
         value, unit = self.adapter.map_reading(12.5, "CCF")
         self.assertEqual(value, 1250)
         self.assertEqual(unit, "CF")
-
-    def test_map_reading__valid_cf_conversion(self):
-        value, unit = self.adapter.map_reading(1200, "CF")
-        self.assertEqual(value, 1200)
-        self.assertEqual(unit, "CF")
-
-    def test_map_reading__valid_gal_conversion(self):
-        value, unit = self.adapter.map_reading(2000, "Gallon")
-        self.assertAlmostEqual(value, 267.36, delta=0.01)
-        self.assertEqual(unit, "CF")
-
-    def test_map_reading__valid_kgal_conversion(self):
-        value, unit = self.adapter.map_reading(5, "KGAL")
-        self.assertAlmostEqual(value, 668.405, delta=0.01)
-        self.assertEqual(unit, "CF")
-
-    def test_map_reading__none_reading(self):
-        value, unit = self.adapter.map_reading(None, "CCF")
-        self.assertIsNone(value)
-        self.assertIsNone(unit)
-
-    def test_map_reading__none_unit(self):
-        value, unit = self.adapter.map_reading(10.0, None)
-        self.assertEqual(value, 10.0)
-        self.assertIsNone(unit)
-
-    def test_map_reading__none_both(self):
-        value, unit = self.adapter.map_reading(None, None)
-        self.assertIsNone(value)
-        self.assertIsNone(unit)
-
-    def test_map_reading__unrecognized_unit(self):
-        with self.assertRaises(ValueError, msg="Unrecognized unit of measure: Pounds"):
-            self.adapter.map_reading(5.0, "Pounds")
 
 
 class TestExtractRangeCalculator(BaseTestCase):
