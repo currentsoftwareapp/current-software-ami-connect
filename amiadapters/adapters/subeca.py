@@ -58,6 +58,18 @@ class SubecaAccount:
         return account
 
 
+@dataclass
+class SubecaAlarm:
+    """
+    Represents a meter alert from the /v1/accounts/{account-id}/alarms endpoint.
+    """
+
+    name: str
+    startAt: str
+    endAt: str
+    deviceId: str
+
+
 class SubecaAdapter(BaseAMIAdapter):
     """
     AMI Adapter that uses API to retrieve Subeca data.
@@ -106,6 +118,7 @@ class SubecaAdapter(BaseAMIAdapter):
 
         accounts = []
         usages = []
+        alarms = []
         for i, account_id in enumerate(account_ids):
             logger.info(
                 f"Requesting usage for account {account_id} ({i+1} / {len(account_ids)})"
@@ -119,8 +132,16 @@ class SubecaAdapter(BaseAMIAdapter):
             )
             accounts.append(self._extract_metadata_for_account(account_id))
 
+            logger.info(
+                f"Requesting alarms for account {account_id} ({i+1} / {len(account_ids)})"
+            )
+            alarms += self._extract_alarms_for_account(
+                account_id, extract_range_start, extract_range_end
+            )
+
         logger.info(f"Extracted {len(accounts)} accounts")
         logger.info(f"Extracted {len(usages)} usage records across all accounts")
+        logger.info(f"Extracted {len(alarms)} alarms across all accounts")
 
         return ExtractOutput(
             {
@@ -129,6 +150,9 @@ class SubecaAdapter(BaseAMIAdapter):
                 ),
                 "usages.json": "\n".join(
                     json.dumps(i, cls=DataclassJSONEncoder) for i in usages
+                ),
+                "alarms.json": "\n".join(
+                    json.dumps(i, cls=DataclassJSONEncoder) for i in alarms
                 ),
             }
         )
@@ -282,6 +306,89 @@ class SubecaAdapter(BaseAMIAdapter):
             latestCommunicationDate=raw_device.get("latestCommunicationDate"),
             latestReading=latest_reading,
         )
+
+    def _extract_alarms_for_account(
+        self,
+        account_id: str,
+        extract_range_start: datetime,
+        extract_range_end: datetime,
+    ) -> List[SubecaAlarm]:
+        """
+        Use /v1/accounts/{accountId}/alarms endpoint to get alarms for this account.
+
+        Example response:
+
+            {
+                "data": [
+                    {
+                    "accountId": "acc1",
+                    "accountStatus": "active",
+                    "meterSerial": "",
+                    "billingRoute": "",
+                    "registerSerial": "",
+                    "alarm": {
+                        "name": "Radio Low Battery",
+                        "startAt": "2026-01-23T00:15:50+00:00",
+                        "endAt": "2026-01-23T01:15:50+00:00",
+                        "deviceId": "5C2D085100010005"
+                    }
+                    }
+                ],
+                "nextToken": "token"
+                }
+        """
+        alarms = []
+        headers = {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "x-subeca-api-key": self.api_key,
+        }
+        body = {
+            "pageSize": 50,
+            "referencePeriod": {
+                "start": extract_range_start.strftime("%Y-%m-%d"),
+                "end": extract_range_end.strftime("%Y-%m-%d"),
+                "utcOffset": "+00:00",
+            },
+        }
+
+        finished = False
+        next_token = None
+        num_pages = 1
+        while not finished and num_pages < 10_000:
+            if next_token is not None:
+                body["nextToken"] = next_token
+
+            logger.info(
+                f"Requesting Subeca alarms for account {account_id}. Page {num_pages}"
+            )
+            result = self._make_request_with_retries(
+                "post",
+                f"{self.api_url}/v1/accounts/{account_id}/alarms",
+                json=body,
+                headers=headers,
+            )
+            response_json = result.json()
+            data = response_json.get("data", [])
+
+            for alarm_data in data:
+                if alarm := alarm_data.get("alarm"):
+                    alarms.append(
+                        SubecaAlarm(
+                            name=alarm.get("name"),
+                            startAt=alarm.get("startAt"),
+                            endAt=alarm.get("endAt"),
+                            deviceId=alarm.get("deviceId"),
+                        )
+                    )
+
+            num_pages += 1
+
+            next_token = response_json.get("nextToken")
+            if next_token is None:
+                finished = True
+
+        return alarms
 
     def _make_request_with_retries(
         self, method: str, url: str, **kwargs
