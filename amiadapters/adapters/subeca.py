@@ -8,7 +8,12 @@ from typing import Dict, Generator, List, Set, Tuple
 import requests
 
 from amiadapters.adapters.base import BaseAMIAdapter
-from amiadapters.models import DataclassJSONEncoder, GeneralMeter, GeneralMeterRead
+from amiadapters.models import (
+    DataclassJSONEncoder,
+    GeneralMeter,
+    GeneralMeterAlert,
+    GeneralMeterRead,
+)
 from amiadapters.outputs.base import ExtractOutput
 from amiadapters.storage.snowflake import RawSnowflakeLoader, RawSnowflakeTableLoader
 
@@ -540,11 +545,25 @@ class SubecaAdapter(BaseAMIAdapter):
             result[usage.deviceId].append(usage)
         return result
 
-    def _transform_meter_alerts(self, run_id, extract_outputs):
+    def _transform_meter_alerts(
+        self, run_id, extract_outputs
+    ) -> List[GeneralMeterAlert]:
         """
-        Not implemented.
+        Transform SubecaAlarm objects from extract output into GeneralMeterAlert.
         """
-        return []
+        result = []
+        raw_alarms = self._read_file(extract_outputs, "alarms.json", SubecaAlarm)
+        for alarm in raw_alarms:
+            alert = GeneralMeterAlert(
+                org_id=self.org_id,
+                device_id=alarm.deviceId,
+                alert_type=alarm.name,
+                start_time=datetime.fromisoformat(alarm.startAt),
+                end_time=datetime.fromisoformat(alarm.endAt) if alarm.endAt else None,
+                source="subeca",
+            )
+            result.append(alert)
+        return result
 
     def _read_file(
         self, extract_outputs: ExtractOutput, file: str, raw_dataclass

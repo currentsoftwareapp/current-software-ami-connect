@@ -264,6 +264,17 @@ class BaseAMIAdapter(ABC):
             for sink in self.storage_sinks:
                 sink.store_transformed(run_id, meters, reads)
 
+    def load_transformed_meter_alerts(self, run_id: str):
+        """
+        Stores transformed meter alerts from transform step into all storage sinks.
+
+        :run_id: identifier for this run of the pipeline, is used to find intermediate output files
+        """
+        with self._base_adapter_metrics.load_transformed_alerts_timer():
+            meter_alerts = self.output_controller.read_transformed_meter_alerts(run_id)
+            for sink in self.storage_sinks:
+                sink.store_transformed_meter_alerts(run_id, meter_alerts)
+
     def post_process(
         self,
         run_id: str,
@@ -553,6 +564,15 @@ class BaseAMIAdapter(ABC):
         def load_transformed_timer(self):
             return self.metrics.timed_task(
                 "adapter.load_transformed.duration_seconds",
+                tags={
+                    "org_id": self.org_id,
+                    "adapter_type": self.adapter_type,
+                },
+            )
+
+        def load_transformed_alerts_timer(self):
+            return self.metrics.timed_task(
+                "adapter.load_transformed_alerts.duration_seconds",
                 tags={
                     "org_id": self.org_id,
                     "adapter_type": self.adapter_type,

@@ -392,7 +392,7 @@ class TestSubecaAdapter(BaseTestCase):
         # Includes one retry
         self.assertEqual(5, mock_request.call_count)
 
-    def make_extract_output(self, accounts, usages):
+    def make_extract_output(self, accounts, usages, alarms=None):
         return ExtractOutput(
             {
                 "accounts.json": "\n".join(
@@ -400,6 +400,9 @@ class TestSubecaAdapter(BaseTestCase):
                 ),
                 "usages.json": "\n".join(
                     json.dumps(u, default=lambda o: o.__dict__) for u in usages
+                ),
+                "alarms.json": "\n".join(
+                    json.dumps(a, default=lambda o: o.__dict__) for a in (alarms or [])
                 ),
             }
         )
@@ -528,7 +531,7 @@ class TestSubecaAdapter(BaseTestCase):
         self.assertEqual(len(meters), 1)
         self.assertTrue(all(r.device_id != "OTHER_DEVICE" for r in reads))
 
-    def test_transform_transform_no_device_id(self):
+    def test_transform_no_device_id(self):
         """If no service point is found, meter still gets created with None for location_id."""
         account = SubecaAccount(
             accountId="A1",
@@ -575,7 +578,7 @@ class TestSubecaAdapter(BaseTestCase):
         self.assertEqual("device-001", alarm.deviceId)
 
     @patch("amiadapters.adapters.subeca.requests.request")
-    def test_paginates_until_no_next_token(self, mock_request):
+    def test_paginates_until_no_next_token_for_alarms(self, mock_request):
         page1 = {
             "data": [ALARM_RESPONSE_ITEM],
             "nextToken": "tok123",
@@ -624,7 +627,7 @@ class TestSubecaAdapter(BaseTestCase):
         self.assertEqual("Radio Low Battery", result[0].name)
 
     @patch("amiadapters.adapters.subeca.requests.request")
-    def test_returns_empty_list_when_no_data(self, mock_request):
+    def test_returns_empty_list_when_no_data_for_alarms(self, mock_request):
         mock_request.return_value = MockResponse(
             {"data": [], "nextToken": None},
             200,
@@ -653,7 +656,7 @@ class TestSubecaAdapter(BaseTestCase):
         self.assertEqual("+00:00", call_body["referencePeriod"]["utcOffset"])
 
     @patch("amiadapters.adapters.subeca.requests.request")
-    def test_calls_correct_url(self, mock_request):
+    def test_calls_correct_url_for_alarms(self, mock_request):
         mock_request.return_value = MockResponse(
             {"data": [], "nextToken": None},
             200,
@@ -706,6 +709,102 @@ class TestSubecaAdapter(BaseTestCase):
         self.assertEqual(1, len(alarms))
         self.assertEqual("Radio Low Battery", alarms[0].name)
         self.assertEqual("device-001", alarms[0].deviceId)
+
+    def test_maps_alarm_to_general_meter_alert(self):
+        alarm = SubecaAlarm(
+            name="Radio Low Battery",
+            startAt="2026-01-02T00:00:00+00:00",
+            endAt="2026-01-02T01:00:00+00:00",
+            deviceId="device-001",
+        )
+        extract_output = self.make_extract_output([], [], alarms=[alarm])
+
+        result = self.adapter._transform_meter_alerts("run-1", extract_output)
+
+        self.assertEqual(1, len(result))
+        alert = result[0]
+        self.assertEqual("test-org", alert.org_id)
+        self.assertEqual("device-001", alert.device_id)
+        self.assertEqual("Radio Low Battery", alert.alert_type)
+        self.assertEqual(
+            datetime.datetime(2026, 1, 2, 0, 0, 0, tzinfo=pytz.UTC), alert.start_time
+        )
+        self.assertEqual(
+            datetime.datetime(2026, 1, 2, 1, 0, 0, tzinfo=pytz.UTC), alert.end_time
+        )
+        self.assertEqual("subeca", alert.source)
+
+    def test_active_alarm_maps_to_none_end_time(self):
+        alarm = SubecaAlarm(
+            name="Leak - Now",
+            startAt="2026-01-02T00:00:00+00:00",
+            endAt=None,
+            deviceId="device-002",
+        )
+        extract_output = self.make_extract_output([], [], alarms=[alarm])
+
+        result = self.adapter._transform_meter_alerts("run-1", extract_output)
+
+        self.assertEqual(1, len(result))
+        self.assertIsNone(result[0].end_time)
+
+    def test_returns_empty_list_for_no_alarms(self):
+        extract_output = ExtractOutput({"alarms.json": ""})
+
+        result = self.adapter._transform_meter_alerts("run-1", extract_output)
+
+        self.assertEqual([], result)
+
+    def test_maps_multiple_alarms(self):
+        alarms = [
+            SubecaAlarm(
+                name="Tamper",
+                startAt="2026-01-01T00:00:00+00:00",
+                endAt="2026-01-01T12:00:00+00:00",
+                deviceId="device-001",
+            ),
+            SubecaAlarm(
+                name="Dry Meter",
+                startAt="2026-01-02T00:00:00+00:00",
+                endAt=None,
+                deviceId="device-002",
+            ),
+        ]
+        extract_output = self.make_extract_output([], [], alarms=alarms)
+
+        result = self.adapter._transform_meter_alerts("run-1", extract_output)
+
+        self.assertEqual(2, len(result))
+        self.assertEqual("Tamper", result[0].alert_type)
+        self.assertEqual("device-001", result[0].device_id)
+        self.assertEqual("Dry Meter", result[1].alert_type)
+        self.assertEqual("device-002", result[1].device_id)
+        self.assertIsNone(result[1].end_time)
+
+
+class TestTransformMeterAlerts(BaseTestCase):
+
+    def setUp(self):
+        self.adapter = SubecaAdapter(
+            org_id="test-org",
+            org_timezone=pytz.timezone("America/Los_Angeles"),
+            pipeline_configuration=self.TEST_PIPELINE_CONFIGURATION,
+            api_url="http://localhost/my-url",
+            api_key="test-key",
+            configured_task_output_controller=self.TEST_TASK_OUTPUT_CONTROLLER_CONFIGURATION,
+            configured_meter_alerts=self.TEST_METER_ALERT_CONFIGURATION,
+            configured_metrics=self.TEST_METRICS_CONFIGURATION,
+            configured_sinks=[],
+        )
+
+    def _make_extract_output(self, alarms):
+        return ExtractOutput(
+            {
+                "alarms.json": "\n".join(
+                    json.dumps(a, default=lambda o: o.__dict__) for a in alarms
+                ),
+            }
+        )
 
 
 class TestSubecaRawSnowflakeLoader(BaseTestCase):
