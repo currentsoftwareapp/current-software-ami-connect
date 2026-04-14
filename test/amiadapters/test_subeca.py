@@ -554,7 +554,7 @@ class TestSubecaAdapter(BaseTestCase):
         meters, _ = self.adapter._transform("run-1", extract_output)
 
         self.assertEqual(0, len(meters))
-    
+
     @patch("amiadapters.adapters.subeca.requests.request")
     def test_returns_alarms_from_single_page(self, mock_request):
         mock_request.return_value = MockResponse(
@@ -667,7 +667,7 @@ class TestSubecaAdapter(BaseTestCase):
         self.assertEqual(
             "http://localhost/my-url/v1/accounts/my-account/alarms", call_url
         )
-    
+
     @patch("amiadapters.adapters.subeca.requests.request")
     def test_extract_output_includes_alarms_json(self, mock_request):
         accounts_response = {

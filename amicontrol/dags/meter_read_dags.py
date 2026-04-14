@@ -48,6 +48,11 @@ def ami_control_dag_factory(
             adapter.transform_and_output(run_id)
 
         @task()
+        def transform_meter_alerts(adapter: BaseAMIAdapter, **context):
+            run_id = context["dag_run"].run_id
+            adapter.transform_meter_alerts_and_output(run_id)
+
+        @task()
         def load_raw(adapter: BaseAMIAdapter, **context):
             run_id = context["dag_run"].run_id
             adapter.load_raw(run_id)
@@ -66,7 +71,13 @@ def ami_control_dag_factory(
         # Set sequence of tasks for this utility
         (
             extract.override(task_id=f"extract-{adapter.name()}")(adapter)
-            >> transform.override(task_id=f"transform-{adapter.name()}")(adapter)
+            >> [
+                # Run transform tasks in parallel
+                transform.override(task_id=f"transform-{adapter.name()}")(adapter),
+                transform_meter_alerts.override(
+                    task_id=f"transform-alerts-{adapter.name()}"
+                )(adapter),
+            ]
             >> [
                 # Run load tasks in parallel
                 load_raw.override(task_id=f"load-raw-{adapter.name()}")(adapter),

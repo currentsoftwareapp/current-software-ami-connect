@@ -540,6 +540,12 @@ class SubecaAdapter(BaseAMIAdapter):
             result[usage.deviceId].append(usage)
         return result
 
+    def _transform_meter_alerts(self, run_id, extract_outputs):
+        """
+        Not implemented.
+        """
+        return []
+
     def _read_file(
         self, extract_outputs: ExtractOutput, file: str, raw_dataclass
     ) -> Generator:
