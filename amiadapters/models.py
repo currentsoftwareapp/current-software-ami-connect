@@ -100,7 +100,7 @@ class GeneralMeterAlert:
     device_id: str
     alert_type: str
     start_time: datetime
-    end_time: datetime
+    end_time: datetime | None
     source: str
 
 

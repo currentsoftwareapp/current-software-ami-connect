@@ -71,7 +71,7 @@ class SubecaAlarm:
 
     name: str
     startAt: str
-    endAt: str
+    endAt: str | None
     deviceId: str
 
 
@@ -374,18 +374,26 @@ class SubecaAdapter(BaseAMIAdapter):
                 headers=headers,
             )
             response_json = result.json()
-            data = response_json.get("data", [])
+            data = response_json.get("data") or []
 
             for alarm_data in data:
                 if alarm := alarm_data.get("alarm"):
-                    alarms.append(
-                        SubecaAlarm(
-                            name=alarm.get("name"),
-                            startAt=alarm.get("startAt"),
-                            endAt=alarm.get("endAt"),
-                            deviceId=alarm.get("deviceId"),
+                    name = alarm.get("name")
+                    start_at = alarm.get("startAt")
+                    device_id = alarm.get("deviceId")
+                    if name and start_at and device_id:
+                        alarms.append(
+                            SubecaAlarm(
+                                name=name,
+                                startAt=start_at,
+                                endAt=alarm.get("endAt"),
+                                deviceId=device_id,
+                            )
                         )
-                    )
+                    else:
+                        logger.warning(
+                            f"Skipping malformed alarm data for account {account_id}: {alarm}"
+                        )
 
             num_pages += 1
 
