@@ -63,6 +63,11 @@ def ami_control_dag_factory(
             adapter.load_transformed(run_id)
 
         @task()
+        def load_transformed_meter_alerts(adapter: BaseAMIAdapter, **context):
+            run_id = context["dag_run"].run_id
+            adapter.load_transformed_meter_alerts(run_id)
+
+        @task()
         def post_process(**context):
             run_id = context["dag_run"].run_id
             start, end = _calculate_extract_range(adapter, context, interval, lag)
@@ -84,6 +89,9 @@ def ami_control_dag_factory(
                 load_transformed.override(task_id=f"load-transformed-{adapter.name()}")(
                     adapter
                 ),
+                load_transformed_meter_alerts.override(
+                    task_id=f"load-transformed-alerts-{adapter.name()}"
+                )(adapter),
             ]
             >> post_process.override(task_id=f"post-process-{adapter.name()}")()
         )
