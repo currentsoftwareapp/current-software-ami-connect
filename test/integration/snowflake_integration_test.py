@@ -28,6 +28,7 @@ from amiadapters.configuration.env import set_global_aws_profile, set_global_aws
 from amiadapters.config import AMIAdapterConfiguration
 from amiadapters.configuration.models import MeterAlertConfiguration
 from amiadapters.models import (
+    DataclassJSONEncoder,
     GeneralMeter,
     GeneralMeterRead,
     GeneralMeterAlert,
