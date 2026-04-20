@@ -74,10 +74,9 @@ Use it to:
 - Configure your production pipeline
 - Run the pipeline locally
 
-The CLI must be able to locate AWS credentials so that it can retrieve secrets and configuration. Most commands accept the `--profile` option which should match the name of
-the AWS profile you're using, e.g. in your `~/.aws/credentials` file.
+The CLI must be able to locate AWS credentials so that it can retrieve secrets and configuration. Set the `AMI_CONNECT__AWS_PROFILE` environment variable to the name of the AWS profile you're using, e.g. in your `~/.aws/credentials` file.
 
-If you'd prefer not to specify the `--profile` option every time, you can set the `AMI_CONNECT__AWS_PROFILE` environment variable to the name of your AWS profile.
+The easiest way to do this is to copy `.env.example` to `.env` and fill in your profile name. The `.env` file is loaded automatically.
 
 #### Configuration
 
@@ -123,26 +122,27 @@ It's common to comment out or modify lines in this script while testing.
 Use the `deploy.sh` script to deploy new code to your AMI Connect pipeline. As of this writing, the script
 bootstraps a deploy environment on the server, then remotely executes a script that builds a new Docker container with Airflow.
 
-You'll need to tell the script the name of your environment, which should match the name of your environment in Terraform. (The script
-uses Terraform outputs to configure itself).
+The script uses `AMI_CONNECT__AWS_PROFILE` from your `.env` file to identify your environment and locate the matching Terraform output files.
 
 By default, the deploy will not restart Airflow. You can use this behavior to deploy new DAG code, which the Docker container should pick up.
 
 Example deploy without restarting Airflow:
 ```
-sh deploy.sh <my profile name>
+sh deploy.sh
 ```
 
 But if you do need to restart Airflow, you can pass in the `restart` argument, like so:
 ```
-sh deploy.sh <my profile name> restart
+sh deploy.sh restart
 ```
 Your Airflow site will be down momentarily and running DAGs will be killed. After about 30s, the site will come back up.
 
 Finally, for systems that rely on a privately hosted [Neptune adapter](./docs/adapters/neptune.md), the script accepts a
-`AMI_CONNECT_NEPTUNE_REPO_URL` environment variable that specifies where the Neptune code should be pulled from. Example:
+`AMI_CONNECT_NEPTUNE_REPO_URL` environment variable that specifies where the Neptune code should be pulled from. Add it to your `.env` file.
+
+Example:
 ```
-AMI_CONNECT_NEPTUNE_REPO_URL=git@github.com:<my github org>/ami-connect-neptune-adapter.git sh deploy.sh <my profile name>
+AMI_CONNECT_NEPTUNE_REPO_URL=git@github.com:<my github org>/ami-connect-neptune-adapter.git
 ```
 
 ### Run Airflow application locally (rarely necessary)
