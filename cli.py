@@ -81,7 +81,7 @@ def sets_environment_from_profile(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
         if kwargs.get("local") is None:
-            set_global_aws_region("us-west-2")
+            set_global_aws_region()
             set_global_aws_profile(kwargs.get("profile"))
             set_global_utility_billing_connection_url()
         return func(*args, **kwargs)

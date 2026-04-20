@@ -30,7 +30,7 @@ def set_global_aws_profile(aws_profile: str = None):
     # Overwrite with the provided profile if specified
     if aws_profile is not None:
         os.environ[AWS_PROFILE_ENV_VAR_NAME] = aws_profile
-    set_global_aws_region(DEFAULT_AWS_REGION)
+    set_global_aws_region()
 
 
 def set_global_aws_region(aws_region: str = None):
