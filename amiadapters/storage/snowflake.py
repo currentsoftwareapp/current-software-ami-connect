@@ -419,7 +419,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 alert.start_time,
                 alert.end_time,
                 alert.alert_type,
-                bool(alert.end_time is None),
+                alert.end_time is None,
             )
             for alert in alerts
         ]
