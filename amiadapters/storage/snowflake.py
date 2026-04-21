@@ -26,8 +26,7 @@ logger = logging.getLogger(__name__)
 
 READINGS_TABLE_NAME = "readings"
 METERS_TABLE_NAME = "meters"
-# METER_ALERTS_TABLE_NAME = "meter_alerts"
-METER_ALERTS_TABLE_NAME = "meter_alerts_subeca_test"
+METER_ALERTS_TABLE_NAME = "meter_alerts"
 
 
 class RawSnowflakeTableLoader(ABC):
