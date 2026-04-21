@@ -26,7 +26,8 @@ logger = logging.getLogger(__name__)
 
 READINGS_TABLE_NAME = "readings"
 METERS_TABLE_NAME = "meters"
-METER_ALERTS_TABLE_NAME = "meter_alerts"
+# METER_ALERTS_TABLE_NAME = "meter_alerts"
+METER_ALERTS_TABLE_NAME = "meter_alerts_subeca_test"
 
 
 class RawSnowflakeTableLoader(ABC):
@@ -783,8 +784,10 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 -- Covers case when new alert is completely contained within the existing alert period
                 OR (stage.new_alert_start BETWEEN existing.start_time AND existing.end_time)
                 -- Active alerts have a NULL end_time, which makes BETWEEN comparisons return NULL (falsy).
-                -- Treat an active alert as overlapping if it started before the new alert period endstage.
+                -- Treat an active alert as overlapping if it started before the new alert period ends
                 OR (existing.end_time IS NULL AND existing.start_time <= stage.new_alert_end)
+                -- Treat an active alert as overlapping if the new alert is active too
+                OR (existing.end_time IS NULL AND stage.is_active)
             )
             -- still active
             WHEN MATCHED AND stage.is_active = true THEN UPDATE SET

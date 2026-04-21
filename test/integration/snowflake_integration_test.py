@@ -777,7 +777,7 @@ class TestSnowflakeExtractedAlerts(BaseSnowflakeIntegrationTestCase):
             alerts[4], ("org2", "device1", "Leak - Now", start_time, end_time)
         )
 
-    def test_merges_existing_alerts(self):
+    def test_sets_existing_alert_to_inactive(self):
         self._assert_num_rows(self.test_meter_alerts_table, 0)
 
         start_time = self.now - datetime.timedelta(days=5)
@@ -820,6 +820,34 @@ class TestSnowflakeExtractedAlerts(BaseSnowflakeIntegrationTestCase):
         self.assertEqual(
             alerts[0], ("org1", "device1", "Leak - Now", start_time, end_time)
         )
+
+    def test_preserves_existing_alert(self):
+        self._assert_num_rows(self.test_meter_alerts_table, 0)
+
+        start_time = self.now - datetime.timedelta(days=5)
+
+        active_alert = GeneralMeterAlert(
+            org_id="org1",
+            device_id="device1",
+            alert_type="Leak - Now",
+            start_time=start_time,
+            end_time=None,
+            source="Subeca",
+        )
+        self.snowflake_sink._upsert_extracted_meter_alerts(
+            alerts=[active_alert],
+            conn=self.conn,
+            meter_alerts_table_name=self.test_meter_alerts_table,
+        )
+        self._assert_num_rows(self.test_meter_alerts_table, 1)
+
+        # Upsert it again, should have the same row as before
+        self.snowflake_sink._upsert_extracted_meter_alerts(
+            alerts=[active_alert],
+            conn=self.conn,
+            meter_alerts_table_name=self.test_meter_alerts_table,
+        )
+        self._assert_num_rows(self.test_meter_alerts_table, 1)
 
     def test_catches_duplicate_alerts(self):
         alert = GeneralMeterAlert(
