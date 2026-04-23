@@ -37,7 +37,7 @@ class RawSnowflakeTableLoader(ABC):
     @abstractmethod
     def table_name(self) -> str:
         """
-        Name of the raw data table, e.g. "subeca_account_base
+        Name of the raw data table, e.g. "subeca_account_base"
         """
         pass
 
