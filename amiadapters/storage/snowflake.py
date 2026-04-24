@@ -400,7 +400,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 NEW_ALERT_END TIMESTAMP_TZ(9),
                 ALERT_TYPE VARCHAR(16777216) NOT NULL,
                 IS_ACTIVE BOOLEAN NOT NULL,
-                SOURCE VARCHAR(16777216) NOT NULL,
+                SOURCE VARCHAR(16777216),
                 unique (ORG_ID, DEVICE_ID, ALERT_TYPE, NEW_ALERT_START)
             );"""
         conn.cursor().execute(create_temp_table_sql)
