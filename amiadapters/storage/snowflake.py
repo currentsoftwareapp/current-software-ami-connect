@@ -400,6 +400,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 NEW_ALERT_END TIMESTAMP_TZ(9),
                 ALERT_TYPE VARCHAR(16777216) NOT NULL,
                 IS_ACTIVE BOOLEAN NOT NULL,
+                SOURCE VARCHAR(16777216) NOT NULL,
                 unique (ORG_ID, DEVICE_ID, ALERT_TYPE, NEW_ALERT_START)
             );"""
         conn.cursor().execute(create_temp_table_sql)
@@ -408,9 +409,9 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
 
         insert_to_temp_table_sql = f"""
             INSERT INTO {temp_table_name} (
-                org_id, device_id, new_alert_start, new_alert_end, alert_type, is_active
-            ) 
-            VALUES (?, ?, ?, ?, ?, ?)
+                org_id, device_id, new_alert_start, new_alert_end, alert_type, is_active, source
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """
         rows = [
             (
@@ -420,6 +421,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 alert.end_time,
                 alert.alert_type,
                 alert.end_time is None,
+                alert.source,
             )
             for alert in alerts
         ]
@@ -567,7 +569,8 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 m.last_interval_value, 
                 m.last_register_value,
                 (m.last_flowtime <= l.new_alert_end) as IS_ACTIVE,
-                'continuous_flow' as alert_type
+                'continuous_flow' as alert_type,
+                'ami_connect' as source
             from leaks_deduped l
             left join (
                 SELECT 
@@ -723,7 +726,8 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 SELECT
                     s.*,
                     (m.last_flowtime <= s.new_alert_end) as IS_ACTIVE,
-                    'high_daily_usage' as alert_type
+                    'high_daily_usage' as alert_type,
+                    'ami_connect' as source
                 FROM new_alerts s
                 LEFT JOIN (
                     SELECT 
@@ -798,9 +802,9 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 existing.end_time = GREATEST(IFNULL(existing.end_time, stage.new_alert_end), stage.new_alert_end)
             -- new alert
             WHEN NOT MATCHED THEN INSERT
-                    (org_id, device_id, start_time, end_time, alert_type)
+                    (org_id, device_id, start_time, end_time, alert_type, source)
                 VALUES
-                    (stage.org_id, stage.device_id, stage.new_alert_start, case when stage.is_active then null else stage.new_alert_end end, stage.alert_type)
+                    (stage.org_id, stage.device_id, stage.new_alert_start, case when stage.is_active then null else stage.new_alert_end end, stage.alert_type, stage.source)
                 ;
         """
         conn.cursor().execute(merge_sql)
