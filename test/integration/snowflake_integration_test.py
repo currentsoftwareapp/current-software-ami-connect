@@ -332,7 +332,7 @@ class TestSnowflakeDailyUsageThresholdAlerts(BaseSnowflakeIntegrationTestCase):
 
         self._assert_num_rows(self.test_meter_alerts_table, 1)
         self.cs.execute(
-            f"SELECT alert_type, start_time, end_time FROM {self.test_meter_alerts_table}"
+            f"SELECT alert_type, start_time, end_time, source FROM {self.test_meter_alerts_table}"
         )
         alert = self.cs.fetchone()
         self.assertEqual(alert[0], "high_daily_usage")
@@ -344,6 +344,7 @@ class TestSnowflakeDailyUsageThresholdAlerts(BaseSnowflakeIntegrationTestCase):
             start_streak.replace(hour=0, minute=0, second=0, microsecond=0)
             + datetime.timedelta(days=3),
         )  # IS_ACTIVE should be false, so end_time should be populated
+        self.assertEqual(alert[3], "ami_connect")
 
     def test_alert_triggers_on_high_daily_usage_and_sets_as_active(self):
         self._assert_num_rows(self.test_meter_alerts_table, 0)
@@ -554,7 +555,7 @@ class TestSnowflakeContinuousFlowAlerts(BaseSnowflakeIntegrationTestCase):
         # 3. Assertions
         self._assert_num_rows(self.test_meter_alerts_table, 1)
         self.cs.execute(
-            f"SELECT alert_type, start_time, end_time FROM {self.test_meter_alerts_table}"
+            f"SELECT alert_type, start_time, end_time, source FROM {self.test_meter_alerts_table}"
         )
         alert = self.cs.fetchone()
         self.assertEqual(alert[0], "continuous_flow")
@@ -564,6 +565,7 @@ class TestSnowflakeContinuousFlowAlerts(BaseSnowflakeIntegrationTestCase):
         self.assertIsNone(
             alert[2]
         )  # IS_ACTIVE should be true, so end_time should be NULL
+        self.assertEqual(alert[3], "ami_connect")
 
     def test_no_alert_when_streak_is_too_short(self):
         device_id = "short_streak_device"
@@ -759,22 +761,24 @@ class TestSnowflakeExtractedAlerts(BaseSnowflakeIntegrationTestCase):
 
         self._assert_num_rows(self.test_meter_alerts_table, 5)
         self.cs.execute(
-            f"SELECT org_id, device_id, alert_type, start_time, end_time FROM {self.test_meter_alerts_table} ORDER BY org_id, device_id, alert_type, start_time"
+            f"SELECT org_id, device_id, alert_type, start_time, end_time, source FROM {self.test_meter_alerts_table} ORDER BY org_id, device_id, alert_type, start_time"
         )
         alerts = self.cs.fetchall()
 
         self.assertEqual(
-            alerts[0], ("org1", "device1", "Leak - Now", start_time, end_time)
+            alerts[0], ("org1", "device1", "Leak - Now", start_time, end_time, "Subeca")
         )
         self.assertEqual(
-            alerts[1], ("org1", "device1", "Leak - Now", self.now, None)
+            alerts[1], ("org1", "device1", "Leak - Now", self.now, None, "Subeca")
         )  # Active alert, end_time should be NULL
-        self.assertEqual(alerts[2], ("org1", "device1", "Tamper", start_time, end_time))
         self.assertEqual(
-            alerts[3], ("org1", "device2", "Leak - Now", start_time, end_time)
+            alerts[2], ("org1", "device1", "Tamper", start_time, end_time, "Subeca")
         )
         self.assertEqual(
-            alerts[4], ("org2", "device1", "Leak - Now", start_time, end_time)
+            alerts[3], ("org1", "device2", "Leak - Now", start_time, end_time, "Subeca")
+        )
+        self.assertEqual(
+            alerts[4], ("org2", "device1", "Leak - Now", start_time, end_time, "Subeca")
         )
 
     def test_sets_existing_alert_to_inactive(self):
