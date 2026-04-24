@@ -771,7 +771,9 @@ class TestSnowflakeExtractedAlerts(BaseSnowflakeIntegrationTestCase):
         self.assertEqual(
             alerts[1], ("org1", "device1", "Leak - Now", self.now, None, "Subeca")
         )  # Active alert, end_time should be NULL
-        self.assertEqual(alerts[2], ("org1", "device1", "Tamper", start_time, end_time, "Subeca"))
+        self.assertEqual(
+            alerts[2], ("org1", "device1", "Tamper", start_time, end_time, "Subeca")
+        )
         self.assertEqual(
             alerts[3], ("org1", "device2", "Leak - Now", start_time, end_time, "Subeca")
         )
