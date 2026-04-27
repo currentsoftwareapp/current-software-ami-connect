@@ -682,6 +682,55 @@ class TestSnowflakeContinuousFlowAlerts(BaseSnowflakeIntegrationTestCase):
             alert[0]
         )  # IS_ACTIVE should be true, so end_time should be NULL
 
+    def test_no_duplicate_row_error_when_two_streaks_match_same_existing_alert(self):
+        """
+        Two staging rows for the same device can both match the same existing active alert,
+        causing a Snowflake "Duplicate row detected" MERGE error. This test exercises that
+        case by creating two separate flow streaks with a gap between them, where an existing
+        active alert already covers the time window.
+        """
+        device_id = "two_streak_device"
+        min_date = self.now - datetime.timedelta(days=5)
+        max_date = self.now + datetime.timedelta(days=1)
+
+        # First run: insert one long streak to create an active alert
+        streak1_start = self.now - datetime.timedelta(hours=100)
+        self._insert_reading_streak(device_id, streak1_start, 72, 1.5)
+        self.snowflake_sink._upsert_continuous_flow_alerts(
+            self.conn,
+            min_date,
+            max_date,
+            org_id="org1",
+            meter_alerts_table_name=self.test_meter_alerts_table,
+            readings_table_name=self.test_readings_table,
+        )
+        self._assert_num_rows(self.test_meter_alerts_table, 1)
+
+        # Second run: insert two new streaks with a 6-hour gap between them.
+        # Both streaks overlap with the existing active alert
+        streak2_start = self.now - datetime.timedelta(hours=48)
+        self._insert_reading_streak(
+            device_id, streak2_start, 25, 1.5, insert_leading_zero=False
+        )
+
+        gap_hours = 6
+        streak3_start = streak2_start + datetime.timedelta(hours=25 + gap_hours)
+        self._insert_reading_streak(
+            device_id, streak3_start, 25, 1.5, insert_leading_zero=False
+        )
+
+        self.snowflake_sink._upsert_continuous_flow_alerts(
+            self.conn,
+            min_date,
+            max_date,
+            org_id="org1",
+            meter_alerts_table_name=self.test_meter_alerts_table,
+            readings_table_name=self.test_readings_table,
+        )
+
+        # Now two alerts: original is set as inactive and a new active alert is created
+        self._assert_num_rows(self.test_meter_alerts_table, 2)
+
 
 class TestSnowflakeExtractedAlerts(BaseSnowflakeIntegrationTestCase):
 
@@ -848,6 +897,61 @@ class TestSnowflakeExtractedAlerts(BaseSnowflakeIntegrationTestCase):
             meter_alerts_table_name=self.test_meter_alerts_table,
         )
         self._assert_num_rows(self.test_meter_alerts_table, 1)
+
+    def test_no_duplicate_row_error_when_two_alerts_match_same_existing_active_alert(
+        self,
+    ):
+        """
+        Two staging rows for the same device/alert_type can both match the same existing
+        active alert, causing a Snowflake "Duplicate row detected" MERGE error. Only the
+        oldest staging row should be allowed to match the existing active alert; newer rows
+        should be inserted as new alerts.
+        """
+        # First run: create an active alert
+        existing_active_alert = GeneralMeterAlert(
+            org_id="org1",
+            device_id="device1",
+            alert_type="Leak - Now",
+            start_time=self.now - datetime.timedelta(days=5),
+            end_time=None,
+            source="Subeca",
+        )
+        self.snowflake_sink._upsert_extracted_meter_alerts(
+            alerts=[existing_active_alert],
+            conn=self.conn,
+            meter_alerts_table_name=self.test_meter_alerts_table,
+        )
+        self._assert_num_rows(self.test_meter_alerts_table, 1)
+
+        # Second run: two new alerts for the same device/type. The older one closed,
+        # the newer one is active. Both would match the existing active alert without the fix.
+        older_alert = GeneralMeterAlert(
+            org_id="org1",
+            device_id="device1",
+            alert_type="Leak - Now",
+            start_time=self.now - datetime.timedelta(days=2),
+            end_time=self.now - datetime.timedelta(days=1),
+            source="Subeca",
+        )
+        newer_active_alert = GeneralMeterAlert(
+            org_id="org1",
+            device_id="device1",
+            alert_type="Leak - Now",
+            start_time=self.now - datetime.timedelta(hours=6),
+            end_time=None,
+            source="Subeca",
+        )
+
+        # Should not raise "Duplicate row detected"
+        self.snowflake_sink._upsert_extracted_meter_alerts(
+            alerts=[older_alert, newer_active_alert],
+            conn=self.conn,
+            meter_alerts_table_name=self.test_meter_alerts_table,
+        )
+
+        # The existing active alert is updated by the oldest staging row (older_alert).
+        # The newer active alert is inserted as a new row.
+        self._assert_num_rows(self.test_meter_alerts_table, 2)
 
     def test_catches_duplicate_alerts(self):
         alert = GeneralMeterAlert(

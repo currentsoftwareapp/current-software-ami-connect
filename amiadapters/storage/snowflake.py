@@ -391,6 +391,17 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
         conn,
         meter_alerts_table_name=METER_ALERTS_TABLE_NAME,
     ):
+        # Find the oldest start time for every alert (required for the staging table before we merge with existing alerts)
+        oldest_start_by_device_and_type = {}
+        for alert in alerts:
+            key = (alert.org_id, alert.device_id, alert.alert_type)
+            if (
+                key not in oldest_start_by_device_and_type
+                or alert.start_time < oldest_start_by_device_and_type[key]
+            ):
+                oldest_start_by_device_and_type[key] = alert.start_time
+
+        # Prepare staging table
         temp_table_name = "stage_extracted_meter_alerts"
         create_temp_table_sql = f"""
             CREATE OR REPLACE TEMPORARY TABLE {temp_table_name} (
@@ -400,17 +411,19 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 NEW_ALERT_END TIMESTAMP_TZ(9),
                 ALERT_TYPE VARCHAR(16777216) NOT NULL,
                 IS_ACTIVE BOOLEAN NOT NULL,
+                IS_OLDEST_FOR_DEVICE BOOLEAN NOT NULL,
                 unique (ORG_ID, DEVICE_ID, ALERT_TYPE, NEW_ALERT_START)
             );"""
         conn.cursor().execute(create_temp_table_sql)
 
         logger.info(f"Adding {len(alerts)} alerts to {temp_table_name} table.")
 
+        # Insert extracted alerts into staging table
         insert_to_temp_table_sql = f"""
             INSERT INTO {temp_table_name} (
-                org_id, device_id, new_alert_start, new_alert_end, alert_type, is_active
+                org_id, device_id, new_alert_start, new_alert_end, alert_type, is_active, is_oldest_for_device
             ) 
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """
         rows = [
             (
@@ -420,13 +433,16 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 alert.end_time,
                 alert.alert_type,
                 alert.end_time is None,
+                alert.start_time
+                == oldest_start_by_device_and_type[
+                    (alert.org_id, alert.device_id, alert.alert_type)
+                ],
             )
             for alert in alerts
         ]
         conn.cursor().executemany(insert_to_temp_table_sql, rows)
 
         logger.info(f"Merging {temp_table_name} into {meter_alerts_table_name} table.")
-
         self._merge_alerts(conn, meter_alerts_table_name, temp_table_name)
 
     def exec_postprocessor(self, run_id: str, min_date: datetime, max_date: datetime):
@@ -567,7 +583,8 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 m.last_interval_value, 
                 m.last_register_value,
                 (m.last_flowtime <= l.new_alert_end) as IS_ACTIVE,
-                'continuous_flow' as alert_type
+                'continuous_flow' as alert_type,
+                ROW_NUMBER() OVER (PARTITION BY l.org_id, l.device_id ORDER BY l.new_alert_start ASC) = 1 AS is_oldest_for_device
             from leaks_deduped l
             left join (
                 SELECT 
@@ -605,7 +622,6 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
         logger.info(
             f"Detected {num_alerts_detected} continuous flow alerts in staging table for org_id {org_id}. Merging into {meter_alerts_table_name} table."
         )
-
         self._merge_alerts(conn, meter_alerts_table_name, "stage_continuous_flows")
 
     def _upsert_daily_usage_threshold_alerts(
@@ -723,7 +739,8 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 SELECT
                     s.*,
                     (m.last_flowtime <= s.new_alert_end) as IS_ACTIVE,
-                    'high_daily_usage' as alert_type
+                    'high_daily_usage' as alert_type,
+                    ROW_NUMBER() OVER (PARTITION BY s.org_id, s.device_id ORDER BY s.new_alert_start ASC) = 1 AS is_oldest_for_device
                 FROM new_alerts s
                 LEFT JOIN (
                     SELECT 
@@ -763,7 +780,6 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
         logger.info(
             f"Detected {num_alerts_detected} daily usage threshold alerts in staging table for org_id {org_id}. Merging into {meter_alerts_table_name} table."
         )
-
         self._merge_alerts(
             conn,
             meter_alerts_table_name,
@@ -783,10 +799,12 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 -- Covers case when new alert is completely contained within the existing alert period
                 OR (stage.new_alert_start BETWEEN existing.start_time AND existing.end_time)
                 -- Active alerts have a NULL end_time, which makes BETWEEN comparisons return NULL (falsy).
-                -- Treat an active alert as overlapping if it started before the new alert period ends
-                OR (existing.end_time IS NULL AND existing.start_time <= stage.new_alert_end)
-                -- Treat an active alert as overlapping if the new alert is active too
-                OR (existing.end_time IS NULL AND stage.is_active)
+                -- Treat an active alert as overlapping if it started before the new alert period ends.
+                -- Only match the oldest staging row per device+alert_type in case stage contains multiple such rows
+                OR (existing.end_time IS NULL AND existing.start_time <= stage.new_alert_end AND stage.is_oldest_for_device)
+                -- Treat an active alert as overlapping if the new alert is active too.
+                -- Only match the oldest staging row per device+alert_type in case stage contains multiple such rows
+                OR (existing.end_time IS NULL AND stage.is_active AND stage.is_oldest_for_device)
             )
             -- still active
             WHEN MATCHED AND stage.is_active = true THEN UPDATE SET
