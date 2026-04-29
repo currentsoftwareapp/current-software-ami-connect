@@ -787,6 +787,22 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
         )
 
     def _merge_alerts(self, conn, meter_alerts_table_name: str, stage_table_name: str):
+        # TODO We can assume that incoming alerts have an end date. We will match inactive alerts first.
+        # They match existing inactive alerts for obvious criteria, when their duration overlaps. They
+        # match existing active alerts only when .......
+        # TODO finally, we match incoming active alerts. We can assume they are the last alert of their type, 
+        # and that we "closed" any existing active alerts as part of the previous step. So if they match an existing 
+        # alert simply by device+type then they are the same alert and it is still active
+
+
+        # TODO That is all well and good but it doesn't cover bugs caused by actual gaps in polling. E.g. if we
+        # have an active alert as of Day 1, then we skip polling for a week, but on Day 7 we identify a new active alert.
+        # Are these the same alert? If we consider them the same and merge them, it's possible we'll subsequently poll for day 3
+        # and find out that the first alert ended on Day 2 and the next began on Day 3. In this way, we need some retroactive way
+        # of breaking the two alerts up. Conversely, if we decided not to consider them the same alert we open ourselves to the opposite 
+        # problem, when a poll of Days 1-7 reveals they are in fact the same alert and we need to combine them. So it seems we need
+        # some way of healing when we backfill.
+
         merge_sql = f"""
             MERGE INTO {meter_alerts_table_name} existing
             USING {stage_table_name} stage
