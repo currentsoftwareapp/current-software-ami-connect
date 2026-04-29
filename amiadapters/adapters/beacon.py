@@ -35,6 +35,7 @@ class Beacon360MeterAndRead:
     """
 
     Account_ID: str
+    Backflow_Gallons: str
     Battery_Level: str
     Current_Leak_Rate: str
     Current_Leak_Start_Date: str
@@ -84,8 +85,48 @@ class Beacon360MeterAndRead:
     Signal_Strength: str
 
 
-# Columns we'll request from Beacon 360 API
-REQUESTED_COLUMNS = list(Beacon360MeterAndRead.__dataclass_fields__.keys())
+# Columns we'll request from Beacon 360 meter reads API
+REQUESTED_COLUMNS_FOR_READS = list(Beacon360MeterAndRead.__dataclass_fields__.keys())
+
+
+@dataclass
+class Beacon360LeakAlert:
+    """
+    Representation of a row in the Beacon 360 leak report CSV.
+
+    NOTE: Attribute names match the column names in the Beacon 360 API response for
+    code convenience.
+    """
+
+    Account_ID: str
+    Meter_ID: str
+    Current_Leak_Start_Date: str
+    Current_Leak_Rate: str
+    Current_Leak_Unit: str
+
+
+# Columns we'll request from Beacon 360 leaks API
+REQUESTED_COLUMNS_FOR_LEAKS = list(Beacon360LeakAlert.__dataclass_fields__.keys())
+
+
+@dataclass
+class Beacon360Exception:
+    """
+    Representation of a row in the Beacon 360 exceptions report CSV.
+
+    NOTE: Attribute names match the column names in the Beacon 360 API response for
+    code convenience.
+    """
+
+    Account_ID: str
+    Meter_ID: str
+    Exception_Start_Date: str
+    Exception_End_Date: str
+    Exception: str
+
+
+# Columns we'll request from Beacon 360 exceptions API
+REQUESTED_COLUMNS_FOR_EXCEPTIONS = list(Beacon360Exception.__dataclass_fields__.keys())
 
 
 class Beacon360Adapter(BaseAMIAdapter):
@@ -113,6 +154,7 @@ class Beacon360Adapter(BaseAMIAdapter):
         self.password = api_password
         self.use_cache = use_cache
         self.cache_output_folder = cache_output_folder
+        self.report_client = BeaconReportClient(api_user, api_password)
         super().__init__(
             org_id,
             org_timezone,
@@ -164,16 +206,23 @@ class Beacon360Adapter(BaseAMIAdapter):
             extract_range_end,
         )
         logger.info("Fetched report")
-        return ExtractOutput({"meters_and_reads.json": self._report_to_output(report)})
 
-    def _report_to_output(self, report: str):
-        return "\n".join(self._report_to_output_stream(report))
+        alerts = self._fetch_exceptions_report(
+            extract_range_start,
+            extract_range_end,
+        )
+        logger.info("Fetched alerts")
 
-    def _report_to_output_stream(self, report: str) -> Generator[str, None, None]:
-        csv_reader = csv.DictReader(StringIO(report), delimiter=",")
-        for data in csv_reader:
-            meter_and_read = Beacon360MeterAndRead(**data)
-            yield json.dumps(meter_and_read, cls=DataclassJSONEncoder)
+        leaks = self._fetch_leaks_report()
+        logger.info("Fetched leaks")
+
+        return ExtractOutput(
+            {
+                "meters_and_reads.json": self._report_to_output(report),
+                "leaks.json": self._leaks_report_to_output(leaks),
+                "exceptions.json": self._exceptions_report_to_output(alerts),
+            }
+        )
 
     def _fetch_range_report(
         self,
@@ -192,120 +241,87 @@ class Beacon360Adapter(BaseAMIAdapter):
             if cached_report is not None:
                 logger.info("Loaded report from cache")
                 return cached_report
-            else:
-                logger.info(
-                    "Could not load report from cache, continuing with calls to API"
-                )
-
-        auth = requests.auth.HTTPBasicAuth(self.user, self.password)
+            logger.info(
+                "Could not load report from cache, continuing with calls to API"
+            )
 
         params = {
             "Start_Date": extract_range_start,
             "End_Date": extract_range_end,
             "Resolution": "hourly",
-            "Header_Columns": ",".join(REQUESTED_COLUMNS),
+            "Header_Columns": ",".join(REQUESTED_COLUMNS_FOR_READS),
             "Has_Endpoint": True,
         }
-
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-
-        # Request report generation, receive a link for watching its status
         logger.info(
-            f"Requesting report for meter reads between {params['Start_Date']} and {params['End_Date']} at {params['Resolution']} resolution"
+            f"Requesting report for meter reads between {extract_range_start} and {extract_range_end} at hourly resolution"
         )
-        if "Meter_ID" in params:
-            logger.info(f"Filtering to Meter_IDs: {params["Meter_ID"]}")
-        generate_report_response = requests.post(
-            url="https://api.beaconama.net/v2/eds/range",
-            headers=headers,
-            params=params,
-            auth=auth,
-        )
-
-        if generate_report_response.status_code == 429:
-            # Rate limit exceeded
-            t = generate_report_response.json()
-            if len(t.get("args", [])) > 2:
-                secs_to_wait = int(t["args"][2])
-                time_to_resume = datetime.now() + timedelta(seconds=secs_to_wait)
-                logger.warning(
-                    f"need to wait {secs_to_wait} seconds until {time_to_resume} ({t})"
-                )
-            raise Exception(f"Rate limit exceeded. Message from Beacon API: {t}")
-        elif generate_report_response.status_code != 202:
-            raise Exception(
-                f"Failed request to generate report. status code: {generate_report_response.status_code}"
-            )
-
-        status_url = generate_report_response.json()["statusUrl"]
-
-        # Poll for report status
-        i = 0
-        max_attempts = 120  # number of minutes
-        while True:
-            i += 1
-            if i >= max_attempts:
-                raise Exception(
-                    f"Reached max attempts ({max_attempts}) polling for report status"
-                )
-
-            logger.info(
-                f"Attempt {i}/{max_attempts} while polling for status on report at {status_url}"
-            )
-
-            status_response = requests.get(
-                url=f"https://api.beaconama.net{status_url}", headers=headers, auth=auth
-            )
-
-            if status_response.status_code != 200:
-                raise Exception(
-                    f"Failed request to get report status. status code: {status_response.status_code} message: {status_response.text}"
-                )
-
-            status_response_data = status_response.json()
-            logger.info(f"Status: {status_response_data}")
-
-            if status_response_data.get("state") == "done":
-                break
-            elif status_response_data.get("state") == "exception":
-                raise Exception(
-                    f"Exception found in report status: {status_response_data.get("message")}"
-                )
-            else:
-                sleep_interval_seconds = 60
-                logger.info(f"Sleeping for {sleep_interval_seconds} seconds")
-                time.sleep(sleep_interval_seconds)
-
-        # Download report
-        report_url = status_response_data["reportUrl"]
-        try:
-            logger.info(f"Downloading report at {report_url}")
-            report_response = self._fetch_report(report_url, headers, auth)
-        except Exception as e:
-            logger.info(f"Exception downloading report at {report_url}: {e}. Retrying.")
-            logger.info(f"Sleeping before retry.")
-            time.sleep(60)
-            logger.info(f"Retrying download for report at {report_url}")
-            report_response = self._fetch_report(report_url, headers, auth)
-
-        if report_response.status_code != 200:
-            raise Exception(
-                f"Failed request to download report. status code: {report_response.status_code}"
-            )
-
-        report = report_response.text
-
+        report = self.report_client.fetch("/v2/eds/range", params)
         self._write_cached_report_and_delete_old_cached_files(
             report, extract_range_start, extract_range_end
         )
-
         return report
 
-    @staticmethod
-    def _fetch_report(report_url, headers, auth):
-        return requests.get(
-            url="https://api.beaconama.net" + report_url, headers=headers, auth=auth
+    def _fetch_exceptions_report(
+        self,
+        extract_range_start: datetime,
+        extract_range_end: datetime,
+    ) -> str:
+        """
+        Return exceptions report w/ meter exceptions as CSV string, first line with headers.
+        Exceptions include tamper alerts, encoder alerts, etc.
+        """
+        params = {
+            "Start_Date": extract_range_start,
+            "End_Date": extract_range_end,
+            "Header_Columns": ",".join(REQUESTED_COLUMNS_FOR_EXCEPTIONS),
+        }
+        logger.info(
+            f"Requesting report for meter exceptions between {extract_range_start} and {extract_range_end}"
         )
+        return self.report_client.fetch(
+            "/v2/eds/exception_range", params, sleep_interval_seconds=15
+        )
+
+    def _fetch_leaks_report(self) -> str:
+        """
+        Return leaks report as CSV string, first line with headers.
+        """
+        params = {
+            "Header_Columns": ",".join(REQUESTED_COLUMNS_FOR_LEAKS),
+        }
+        logger.info("Requesting report for leaks")
+        return self.report_client.fetch(
+            "/v2/eds/leak", params, sleep_interval_seconds=5
+        )
+
+    def _report_to_output(self, report: str):
+        return "\n".join(self._report_to_output_stream(report))
+
+    def _report_to_output_stream(self, report: str) -> Generator[str, None, None]:
+        csv_reader = csv.DictReader(StringIO(report), delimiter=",")
+        for data in csv_reader:
+            meter_and_read = Beacon360MeterAndRead(**data)
+            yield json.dumps(meter_and_read, cls=DataclassJSONEncoder)
+
+    def _leaks_report_to_output(self, report: str) -> str:
+        return "\n".join(self._leaks_report_to_output_stream(report))
+
+    def _leaks_report_to_output_stream(self, report: str) -> Generator[str, None, None]:
+        csv_reader = csv.DictReader(StringIO(report), delimiter=",")
+        for data in csv_reader:
+            leak = Beacon360LeakAlert(**data)
+            yield json.dumps(leak, cls=DataclassJSONEncoder)
+
+    def _exceptions_report_to_output(self, report: str) -> str:
+        return "\n".join(self._exceptions_report_to_output_stream(report))
+
+    def _exceptions_report_to_output_stream(
+        self, report: str
+    ) -> Generator[str, None, None]:
+        csv_reader = csv.DictReader(StringIO(report), delimiter=",")
+        for data in csv_reader:
+            exception = Beacon360Exception(**data)
+            yield json.dumps(exception, cls=DataclassJSONEncoder)
 
     def _get_cached_report(
         self, extract_range_start: datetime, extract_range_end: datetime
@@ -441,13 +457,125 @@ class Beacon360Adapter(BaseAMIAdapter):
         )
 
 
+class BeaconReportClient:
+    """
+    Handles the full async lifecycle of a Beacon 360 report:
+    create async report → poll for report status → download content.
+    """
+
+    BASE_URL = "https://api.beaconama.net"
+    HEADERS = {"Content-Type": "application/x-www-form-urlencoded"}
+
+    def __init__(self, user: str, password: str):
+        self.auth = requests.auth.HTTPBasicAuth(user, password)
+
+    def fetch(
+        self, endpoint: str, params: dict, sleep_interval_seconds: int = 60
+    ) -> str:
+        """
+        POST to the given endpoint to trigger report generation, poll until done,
+        then download and return the report text.
+        """
+        generate_response = requests.post(
+            url=f"{self.BASE_URL}{endpoint}",
+            headers=self.HEADERS,
+            params=params,
+            auth=self.auth,
+        )
+
+        if generate_response.status_code == 429:
+            t = generate_response.json()
+            if len(t.get("args", [])) > 2:
+                secs_to_wait = int(t["args"][2])
+                time_to_resume = datetime.now() + timedelta(seconds=secs_to_wait)
+                logger.warning(
+                    f"need to wait {secs_to_wait} seconds until {time_to_resume} ({t})"
+                )
+            raise Exception(f"Rate limit exceeded. Message from Beacon API: {t}")
+        elif generate_response.status_code != 202:
+            raise Exception(
+                f"Failed request to generate report. status code: {generate_response.status_code}"
+            )
+
+        status_url = generate_response.json()["statusUrl"]
+        status_data = self._poll_status(status_url, sleep_interval_seconds)
+
+        report_url = status_data["reportUrl"]
+        return self._download(report_url)
+
+    def _poll_status(self, status_url: str, sleep_interval_seconds: int) -> dict:
+        max_attempts = 120
+        for i in range(1, max_attempts + 1):
+            if i > max_attempts:
+                raise Exception(
+                    f"Reached max attempts ({max_attempts}) polling for report status"
+                )
+
+            logger.info(
+                f"Attempt {i}/{max_attempts} while polling for status on report at {status_url}"
+            )
+
+            status_response = requests.get(
+                url=f"{self.BASE_URL}{status_url}",
+                headers=self.HEADERS,
+                auth=self.auth,
+            )
+
+            if status_response.status_code != 200:
+                raise Exception(
+                    f"Failed request to get report status. status code: {status_response.status_code} message: {status_response.text}"
+                )
+
+            status_data = status_response.json()
+            logger.info(f"Status: {status_data}")
+
+            if status_data.get("state") == "done":
+                return status_data
+            elif status_data.get("state") == "exception":
+                raise Exception(
+                    f"Exception found in report status: {status_data.get('message')}"
+                )
+
+            logger.info(f"Sleeping for {sleep_interval_seconds} seconds")
+            time.sleep(sleep_interval_seconds)
+
+        raise Exception(
+            f"Reached max attempts ({max_attempts}) polling for report status"
+        )
+
+    def _download(self, report_url: str) -> str:
+        try:
+            logger.info(f"Downloading report at {report_url}")
+            response = requests.get(
+                url=f"{self.BASE_URL}{report_url}",
+                headers=self.HEADERS,
+                auth=self.auth,
+            )
+        except Exception as e:
+            logger.info(f"Exception downloading report at {report_url}: {e}. Retrying.")
+            time.sleep(60)
+            logger.info(f"Retrying download for report at {report_url}")
+            response = requests.get(
+                url=f"{self.BASE_URL}{report_url}",
+                headers=self.HEADERS,
+                auth=self.auth,
+            )
+
+        if response.status_code != 200:
+            raise Exception(
+                f"Failed request to download report. status code: {response.status_code}"
+            )
+
+        return response.text
+
+
 class BeaconRawTableLoader(RawSnowflakeTableLoader):
 
     def table_name(self) -> str:
         return "beacon_360_base"
 
     def columns(self) -> List[str]:
-        return ["device_id"] + REQUESTED_COLUMNS
+        return ["device_id"] + REQUESTED_COLUMNS_FOR_READS
 
     def unique_by(self) -> List[str]:
         return ["device_id", "read_time"]
@@ -459,7 +587,7 @@ class BeaconRawTableLoader(RawSnowflakeTableLoader):
         return [
             tuple(
                 [i.Endpoint_SN]
-                + [i.__getattribute__(name) for name in REQUESTED_COLUMNS]
+                + [i.__getattribute__(name) for name in REQUESTED_COLUMNS_FOR_READS]
             )
             for i in raw_data
         ]
