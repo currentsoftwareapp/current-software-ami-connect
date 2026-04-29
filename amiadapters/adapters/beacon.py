@@ -99,7 +99,7 @@ class Beacon360LeakAlert:
     """
 
     Account_ID: str
-    Meter_ID: str
+    Endpoint_SN: str
     Current_Leak_Start_Date: str
     Current_Leak_Rate: str
     Current_Leak_Unit: str
@@ -119,7 +119,7 @@ class Beacon360Exception:
     """
 
     Account_ID: str
-    Meter_ID: str
+    Endpoint_SN: str
     Exception_Start_Date: str
     Exception_End_Date: str
     Exception: str
@@ -593,6 +593,61 @@ class BeaconRawTableLoader(RawSnowflakeTableLoader):
         ]
 
 
+class BeaconLeaksRawTableLoader(RawSnowflakeTableLoader):
+
+    def table_name(self) -> str:
+        return "beacon_360_leaks_base"
+
+    def columns(self) -> List[str]:
+        return ["device_id"] + REQUESTED_COLUMNS_FOR_LEAKS
+
+    def unique_by(self) -> List[str]:
+        return ["device_id", "current_leak_start_date"]
+
+    def prepare_raw_data(self, extract_outputs):
+        raw_data = extract_outputs.load_from_file(
+            "leaks.json", Beacon360LeakAlert, allow_empty=True
+        )
+        return [
+            tuple(
+                [i.Endpoint_SN]
+                + [i.__getattribute__(name) for name in REQUESTED_COLUMNS_FOR_LEAKS]
+            )
+            for i in raw_data
+        ]
+
+
+class BeaconExceptionsRawTableLoader(RawSnowflakeTableLoader):
+
+    def table_name(self) -> str:
+        return "beacon_360_exceptions_base"
+
+    def columns(self) -> List[str]:
+        return ["device_id"] + REQUESTED_COLUMNS_FOR_EXCEPTIONS
+
+    def unique_by(self) -> List[str]:
+        return ["device_id", "exception", "exception_start_date"]
+
+    def prepare_raw_data(self, extract_outputs):
+        raw_data = extract_outputs.load_from_file(
+            "exceptions.json", Beacon360Exception, allow_empty=True
+        )
+        return [
+            tuple(
+                [i.Endpoint_SN]
+                + [
+                    i.__getattribute__(name)
+                    for name in REQUESTED_COLUMNS_FOR_EXCEPTIONS
+                ]
+            )
+            for i in raw_data
+        ]
+
+
 BEACON_RAW_SNOWFLAKE_LOADER = RawSnowflakeLoader.with_table_loaders(
-    [BeaconRawTableLoader()]
+    [
+        BeaconRawTableLoader(),
+        BeaconLeaksRawTableLoader(),
+        BeaconExceptionsRawTableLoader(),
+    ]
 )

@@ -8,6 +8,9 @@ from amiadapters.adapters.beacon import (
     Beacon360Exception,
     Beacon360LeakAlert,
     Beacon360MeterAndRead,
+    BeaconExceptionsRawTableLoader,
+    BeaconLeaksRawTableLoader,
+    BeaconRawTableLoader,
     BeaconReportClient,
     BEACON_RAW_SNOWFLAKE_LOADER,
     REQUESTED_COLUMNS_FOR_READS,
@@ -363,7 +366,7 @@ class TestBeacon360Adapter(BaseTestCase):
 
     def test_leaks_report_to_output(self):
         leaks_csv = (
-            "Account_ID,Meter_ID,Current_Leak_Start_Date,Current_Leak_Rate,Current_Leak_Unit\n"
+            "Account_ID,Endpoint_SN,Current_Leak_Start_Date,Current_Leak_Rate,Current_Leak_Unit\n"
             "303022,1470158170,2024-08-01 00:00,1.5,Gallons Per Hour\n"
             "303023,1470158171,2024-08-02 00:00,2.0,Gallons Per Hour\n"
         )
@@ -373,14 +376,14 @@ class TestBeacon360Adapter(BaseTestCase):
         expected = [
             Beacon360LeakAlert(
                 Account_ID="303022",
-                Meter_ID="1470158170",
+                Endpoint_SN="1470158170",
                 Current_Leak_Start_Date="2024-08-01 00:00",
                 Current_Leak_Rate="1.5",
                 Current_Leak_Unit="Gallons Per Hour",
             ),
             Beacon360LeakAlert(
                 Account_ID="303023",
-                Meter_ID="1470158171",
+                Endpoint_SN="1470158171",
                 Current_Leak_Start_Date="2024-08-02 00:00",
                 Current_Leak_Rate="2.0",
                 Current_Leak_Unit="Gallons Per Hour",
@@ -390,7 +393,7 @@ class TestBeacon360Adapter(BaseTestCase):
 
     def test_exceptions_report_to_output(self):
         exceptions_csv = (
-            "Account_ID,Meter_ID,Exception_Start_Date,Exception_End_Date,Exception\n"
+            "Account_ID,Endpoint_SN,Exception_Start_Date,Exception_End_Date,Exception\n"
             "303022,1470158170,2024-08-01 00:00,2024-08-02 00:00,Tamper\n"
             "303022,1470158170,2024-08-03 00:00,,EncoderAlert\n"
         )
@@ -400,14 +403,14 @@ class TestBeacon360Adapter(BaseTestCase):
         expected = [
             Beacon360Exception(
                 Account_ID="303022",
-                Meter_ID="1470158170",
+                Endpoint_SN="1470158170",
                 Exception_Start_Date="2024-08-01 00:00",
                 Exception_End_Date="2024-08-02 00:00",
                 Exception="Tamper",
             ),
             Beacon360Exception(
                 Account_ID="303022",
-                Meter_ID="1470158170",
+                Endpoint_SN="1470158170",
                 Exception_Start_Date="2024-08-03 00:00",
                 Exception_End_Date="",
                 Exception="EncoderAlert",
@@ -824,11 +827,27 @@ class TestBeaconRawSnowflakeLoader(BaseTestCase):
         self.mock_cursor = mock.Mock()
         self.conn.cursor.return_value = self.mock_cursor
         meter_and_read = beacon_meter_and_read_factory()
+        leak = Beacon360LeakAlert(
+            Account_ID="303022",
+            Endpoint_SN="1470158170",
+            Current_Leak_Start_Date="2024-08-01 00:00",
+            Current_Leak_Rate="1.5",
+            Current_Leak_Unit="Gallons Per Hour",
+        )
+        exception = Beacon360Exception(
+            Account_ID="303022",
+            Endpoint_SN="1470158170",
+            Exception_Start_Date="2024-08-01 00:00",
+            Exception_End_Date="2024-08-02 00:00",
+            Exception="Tamper",
+        )
         self.extract_outputs = ExtractOutput(
             {
                 "meters_and_reads.json": json.dumps(
                     meter_and_read, cls=DataclassJSONEncoder
-                )
+                ),
+                "leaks.json": json.dumps(leak, cls=DataclassJSONEncoder),
+                "exceptions.json": json.dumps(exception, cls=DataclassJSONEncoder),
             }
         )
 
@@ -841,5 +860,39 @@ class TestBeaconRawSnowflakeLoader(BaseTestCase):
             self.extract_outputs,
             self.conn,
         )
-        self.assertEqual(2, self.mock_cursor.execute.call_count)
-        self.assertEqual(1, self.mock_cursor.executemany.call_count)
+        # 2 execute (CREATE temp + MERGE) per table loader × 3 loaders
+        self.assertEqual(6, self.mock_cursor.execute.call_count)
+        # 1 executemany (INSERT) per table loader × 3 loaders
+        self.assertEqual(3, self.mock_cursor.executemany.call_count)
+
+    def test_load__reads_table(self):
+        loader = BeaconRawTableLoader()
+        raw_data = loader.prepare_raw_data(self.extract_outputs)
+        self.assertEqual(1, len(raw_data))
+        self.assertEqual("22", raw_data[0][0])  # device_id = Endpoint_SN
+
+    def test_load__leaks_table(self):
+        loader = BeaconLeaksRawTableLoader()
+        raw_data = loader.prepare_raw_data(self.extract_outputs)
+        self.assertEqual(1, len(raw_data))
+        self.assertEqual("1470158170", raw_data[0][0])  # Endpoint_SN
+        self.assertEqual("303022", raw_data[0][1])  # Account_ID
+
+    def test_load__leaks_table__empty_when_no_leaks_file(self):
+        outputs = ExtractOutput({"meters_and_reads.json": ""})
+        loader = BeaconLeaksRawTableLoader()
+        raw_data = loader.prepare_raw_data(outputs)
+        self.assertEqual([], raw_data)
+
+    def test_load__exceptions_table(self):
+        loader = BeaconExceptionsRawTableLoader()
+        raw_data = loader.prepare_raw_data(self.extract_outputs)
+        self.assertEqual(1, len(raw_data))
+        self.assertEqual("1470158170", raw_data[0][0])  # Endpoint_SN
+        self.assertEqual("303022", raw_data[0][1])  # Account_ID
+
+    def test_load__exceptions_table__empty_when_no_exceptions_file(self):
+        outputs = ExtractOutput({"meters_and_reads.json": ""})
+        loader = BeaconExceptionsRawTableLoader()
+        raw_data = loader.prepare_raw_data(outputs)
+        self.assertEqual([], raw_data)
