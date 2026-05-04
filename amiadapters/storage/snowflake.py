@@ -584,7 +584,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 m.last_register_value,
                 (m.last_flowtime <= l.new_alert_end) as IS_ACTIVE,
                 'continuous_flow' as alert_type,
-                ROW_NUMBER() OVER (PARTITION BY l.org_id, l.device_id ORDER BY l.new_alert_start ASC) = 1 AS is_oldest_for_device
+                ROW_NUMBER() OVER (PARTITION BY l.org_id, l.device_id, alert_type ORDER BY l.new_alert_start ASC) = 1 AS is_oldest_for_device
             from leaks_deduped l
             left join (
                 SELECT 
