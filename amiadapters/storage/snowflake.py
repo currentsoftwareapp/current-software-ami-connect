@@ -740,7 +740,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                     s.*,
                     (m.last_flowtime <= s.new_alert_end) as IS_ACTIVE,
                     'high_daily_usage' as alert_type,
-                    ROW_NUMBER() OVER (PARTITION BY s.org_id, s.device_id ORDER BY s.new_alert_start ASC) = 1 AS is_oldest_for_device
+                    ROW_NUMBER() OVER (PARTITION BY s.org_id, s.device_id, alert_type ORDER BY s.new_alert_start ASC) = 1 AS is_oldest_for_device
                 FROM new_alerts s
                 LEFT JOIN (
                     SELECT 
