@@ -252,7 +252,7 @@ def inspect_postprocessor(
     """
     if not (org_id and device_id and start_date and end_date):
         raise typer.BadParameter("Missing parameter")
-    
+
     config = AMIAdapterConfiguration.from_database()
 
     adapters = config.adapters()
