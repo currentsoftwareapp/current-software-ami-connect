@@ -838,7 +838,9 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
             WHERE stage.org_id          = match.org_id
               AND stage.device_id       = match.device_id
               AND stage.alert_type      = match.alert_type
-              AND stage.new_alert_start = match.new_alert_start;
+              AND stage.source          = match.source
+              AND stage.new_alert_start = match.new_alert_start
+              ;
         """
         conn.cursor().execute(assign_sql)
 
@@ -846,7 +848,23 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
         merge_sql = f"""
             MERGE INTO {meter_alerts_table_name} existing
             USING {stage_table_name} stage
-            ON existing.id = stage.matching_existing_alert_id
+            ON existing.org_id = stage.org_id
+            AND existing.device_id = stage.device_id
+            AND existing.alert_type = stage.alert_type
+            AND existing.source = stage.source
+            AND (
+                   (existing.start_time BETWEEN stage.new_alert_start AND stage.new_alert_end)
+                OR (existing.end_time BETWEEN stage.new_alert_start AND stage.new_alert_end)
+                -- Covers case when new alert is completely contained within the existing alert period
+                OR (stage.new_alert_start BETWEEN existing.start_time AND existing.end_time)
+                -- Active alerts have a NULL end_time, which makes BETWEEN comparisons return NULL (falsy).
+                -- Treat an active alert as overlapping if it started before the new alert period ends.
+                -- Only match the oldest staging row per device+alert_type in case stage contains multiple such rows
+                OR (existing.end_time IS NULL AND existing.start_time <= stage.new_alert_end AND stage.is_oldest_for_device)
+                -- Treat an active alert as overlapping if the new alert is active too.
+                -- Only match the oldest staging row per device+alert_type in case stage contains multiple such rows
+                OR (existing.end_time IS NULL AND stage.is_active AND stage.is_oldest_for_device)
+            )
             -- still active
             WHEN MATCHED AND stage.is_active = true THEN UPDATE SET
                 existing.start_time = LEAST(existing.start_time, stage.new_alert_start),
