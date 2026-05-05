@@ -15,7 +15,12 @@ from amiadapters.adapters.beacon import (
     BEACON_RAW_SNOWFLAKE_LOADER,
     REQUESTED_COLUMNS_FOR_READS,
 )
-from amiadapters.models import DataclassJSONEncoder, GeneralMeter, GeneralMeterRead
+from amiadapters.models import (
+    DataclassJSONEncoder,
+    GeneralMeter,
+    GeneralMeterAlert,
+    GeneralMeterRead,
+)
 from amiadapters.outputs.base import ExtractOutput
 
 from test.base_test_case import (
@@ -417,6 +422,48 @@ class TestBeacon360Adapter(BaseTestCase):
             ),
         ]
         self.assertEqual(expected, result)
+
+    def test_transform_meter_alerts__exceptions(self):
+        exception = Beacon360Exception(
+            Account_ID="303022",
+            Endpoint_SN="130615549",
+            Exception_Start_Date="2024-08-01 00:00",
+            Exception_End_Date="2024-08-02 00:00",
+            Exception="Tamper",
+        )
+        extract_outputs = ExtractOutput(
+            {"exceptions.json": json.dumps(exception, cls=DataclassJSONEncoder)}
+        )
+        result = self.adapter._transform_meter_alerts("run-id", extract_outputs)
+
+        self.assertEqual(1, len(result))
+        alert = result[0]
+        self.assertEqual("test-org", alert.org_id)
+        self.assertEqual("130615549", alert.device_id)
+        self.assertEqual("Tamper", alert.alert_type)
+        self.assertEqual(
+            self.adapter.org_timezone.localize(datetime.datetime(2024, 8, 1, 0, 0)),
+            alert.start_time,
+        )
+        self.assertEqual(
+            self.adapter.org_timezone.localize(datetime.datetime(2024, 8, 2, 0, 0)),
+            alert.end_time,
+        )
+        self.assertEqual("Beacon 360", alert.source)
+
+    def test_transform_meter_alerts__active_exception_has_no_end_time(self):
+        exception = Beacon360Exception(
+            Account_ID="303022",
+            Endpoint_SN="130615549",
+            Exception_Start_Date="2024-08-01 00:00",
+            Exception_End_Date="",
+            Exception="EncoderAlert",
+        )
+        extract_outputs = ExtractOutput(
+            {"exceptions.json": json.dumps(exception, cls=DataclassJSONEncoder)}
+        )
+        result = self.adapter._transform_meter_alerts("run-id", extract_outputs)
+        self.assertIsNone(result[0].end_time)
 
     def test_transform_meters_and_reads(self):
         raw_meters_with_reads = [

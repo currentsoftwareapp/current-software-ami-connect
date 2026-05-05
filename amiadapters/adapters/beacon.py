@@ -17,7 +17,12 @@ from amiadapters.adapters.base import (
     STANDARD_DAILY_SCHEDULED_EXTRACT,
 )
 from amiadapters.configuration.models import MetricsConfigurationBase
-from amiadapters.models import DataclassJSONEncoder, GeneralMeter, GeneralMeterRead
+from amiadapters.models import (
+    DataclassJSONEncoder,
+    GeneralMeter,
+    GeneralMeterAlert,
+    GeneralMeterRead,
+)
 from amiadapters.outputs.base import ExtractOutput
 from amiadapters.storage.snowflake import RawSnowflakeLoader, RawSnowflakeTableLoader
 
@@ -443,10 +448,28 @@ class Beacon360Adapter(BaseAMIAdapter):
         )
 
     def _transform_meter_alerts(self, run_id, extract_outputs):
-        """
-        Not implemented.
-        """
-        return []
+        result = []
+
+        exceptions = extract_outputs.load_from_file(
+            "exceptions.json", Beacon360Exception, allow_empty=True
+        )
+        for exception in exceptions:
+            result.append(
+                GeneralMeterAlert(
+                    org_id=self.org_id,
+                    device_id=exception.Endpoint_SN,
+                    alert_type=exception.Exception,
+                    start_time=self.datetime_from_iso_str(
+                        exception.Exception_Start_Date, self.org_timezone
+                    ),
+                    end_time=self.datetime_from_iso_str(
+                        exception.Exception_End_Date, self.org_timezone
+                    ),
+                    source="Beacon 360",
+                )
+            )
+
+        return result
 
     def _cached_report_file(
         self, extract_range_start: datetime, extract_range_end: datetime
