@@ -504,6 +504,7 @@ class BeaconReportClient:
             headers=self.HEADERS,
             params=params,
             auth=self.auth,
+            timeout=120,
         )
 
         if generate_response.status_code == 429:
@@ -529,11 +530,6 @@ class BeaconReportClient:
     def _poll_status(self, status_url: str, sleep_interval_seconds: int) -> dict:
         max_attempts = 120
         for i in range(1, max_attempts + 1):
-            if i > max_attempts:
-                raise Exception(
-                    f"Reached max attempts ({max_attempts}) polling for report status"
-                )
-
             logger.info(
                 f"Attempt {i}/{max_attempts} while polling for status on report at {status_url}"
             )
@@ -542,6 +538,7 @@ class BeaconReportClient:
                 url=f"{self.BASE_URL}{status_url}",
                 headers=self.HEADERS,
                 auth=self.auth,
+                timeout=120,
             )
 
             if status_response.status_code != 200:
@@ -573,6 +570,7 @@ class BeaconReportClient:
                 url=f"{self.BASE_URL}{report_url}",
                 headers=self.HEADERS,
                 auth=self.auth,
+                timeout=120,
             )
         except Exception as e:
             logger.info(f"Exception downloading report at {report_url}: {e}. Retrying.")
@@ -582,6 +580,7 @@ class BeaconReportClient:
                 url=f"{self.BASE_URL}{report_url}",
                 headers=self.HEADERS,
                 auth=self.auth,
+                timeout=120,
             )
 
         if response.status_code != 200:
