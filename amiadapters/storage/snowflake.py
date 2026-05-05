@@ -391,16 +391,6 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
         conn,
         meter_alerts_table_name=METER_ALERTS_TABLE_NAME,
     ):
-        # Find the oldest start time for every alert (required for the staging table before we merge with existing alerts)
-        oldest_start_by_device_and_type = {}
-        for alert in alerts:
-            key = (alert.org_id, alert.device_id, alert.alert_type)
-            if (
-                key not in oldest_start_by_device_and_type
-                or alert.start_time < oldest_start_by_device_and_type[key]
-            ):
-                oldest_start_by_device_and_type[key] = alert.start_time
-
         # Prepare staging table
         temp_table_name = "stage_extracted_meter_alerts"
         create_temp_table_sql = f"""
@@ -411,7 +401,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 NEW_ALERT_END TIMESTAMP_TZ(9),
                 ALERT_TYPE VARCHAR(16777216) NOT NULL,
                 IS_ACTIVE BOOLEAN NOT NULL,
-                IS_OLDEST_FOR_DEVICE BOOLEAN NOT NULL,
+                MATCHING_EXISTING_ALERT_ID INTEGER,
                 unique (ORG_ID, DEVICE_ID, ALERT_TYPE, NEW_ALERT_START)
             );"""
         conn.cursor().execute(create_temp_table_sql)
@@ -421,9 +411,9 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
         # Insert extracted alerts into staging table
         insert_to_temp_table_sql = f"""
             INSERT INTO {temp_table_name} (
-                org_id, device_id, new_alert_start, new_alert_end, alert_type, is_active, is_oldest_for_device
-            ) 
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                org_id, device_id, new_alert_start, new_alert_end, alert_type, is_active
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
         """
         rows = [
             (
@@ -433,10 +423,6 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 alert.end_time,
                 alert.alert_type,
                 alert.end_time is None,
-                alert.start_time
-                == oldest_start_by_device_and_type[
-                    (alert.org_id, alert.device_id, alert.alert_type)
-                ],
             )
             for alert in alerts
         ]
@@ -584,7 +570,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 m.last_register_value,
                 (m.last_flowtime <= l.new_alert_end) as IS_ACTIVE,
                 'continuous_flow' as alert_type,
-                ROW_NUMBER() OVER (PARTITION BY l.org_id, l.device_id, alert_type ORDER BY l.new_alert_start ASC) = 1 AS is_oldest_for_device
+                NULL::INTEGER AS matching_existing_alert_id
             from leaks_deduped l
             left join (
                 SELECT 
@@ -740,7 +726,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                     s.*,
                     (m.last_flowtime <= s.new_alert_end) as IS_ACTIVE,
                     'high_daily_usage' as alert_type,
-                    ROW_NUMBER() OVER (PARTITION BY s.org_id, s.device_id, alert_type ORDER BY s.new_alert_start ASC) = 1 AS is_oldest_for_device
+                    NULL::INTEGER AS matching_existing_alert_id
                 FROM new_alerts s
                 LEFT JOIN (
                     SELECT 
@@ -787,25 +773,58 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
         )
 
     def _merge_alerts(self, conn, meter_alerts_table_name: str, stage_table_name: str):
+        """
+        This is the canonical method for updating the meter alerts table with new alerts. The method expects
+        a staging table that contains the incoming alerts and follows these rules:
+
+        1. Adheres to the table schema expected by the SQL queries below
+        2. Contains zero overlapping alerts, i.e. all alerts for a given device+alert_type+... end strictly before the next begins.
+        """
+        # Set the matching_existing_alert_id on every incoming alert that we can match to an existing alert
+        # This will later be used to update existing alerts in the meter alerts table
+        # We begin with this step because it makes it easier to handle the case when many incoming alerts match a single existing alert
+        assign_sql = f"""
+            UPDATE {stage_table_name} stage
+            SET matching_existing_alert_id = match.existing_id
+            FROM (
+                SELECT
+                    stage.org_id,
+                    stage.device_id,
+                    stage.alert_type,
+                    stage.new_alert_start,
+                    existing.id AS existing_id
+                FROM {stage_table_name} stage
+                JOIN {meter_alerts_table_name} existing
+                    ON  existing.org_id     = stage.org_id
+                    AND existing.device_id  = stage.device_id
+                    AND existing.alert_type = stage.alert_type
+                    AND (
+                            -- The incoming alert matches an existing inactive alert
+                           (existing.start_time BETWEEN stage.new_alert_start AND stage.new_alert_end)
+                        OR (existing.end_time   BETWEEN stage.new_alert_start AND stage.new_alert_end)
+                        OR (stage.new_alert_start BETWEEN existing.start_time AND existing.end_time)
+                        -- The incoming alert matches an existing active alert
+                        OR (existing.end_time IS NULL AND existing.start_time <= stage.new_alert_end)
+                        OR (existing.end_time IS NULL AND stage.is_active)
+                    )
+                -- This handles the case when multiple incoming alerts match an existing alert. Only the first incoming alert is matched.
+                QUALIFY ROW_NUMBER() OVER (
+                    PARTITION BY existing.id
+                    ORDER BY stage.new_alert_start ASC
+                ) = 1
+            ) match
+            WHERE stage.org_id          = match.org_id
+              AND stage.device_id       = match.device_id
+              AND stage.alert_type      = match.alert_type
+              AND stage.new_alert_start = match.new_alert_start;
+        """
+        conn.cursor().execute(assign_sql)
+
+        # Now we're ready to do the MERGE into the meter alerts table. Join on the ID we made above.
         merge_sql = f"""
             MERGE INTO {meter_alerts_table_name} existing
             USING {stage_table_name} stage
-            ON existing.org_id = stage.org_id
-            AND existing.device_id = stage.device_id
-            AND existing.alert_type = stage.alert_type
-            AND (
-                   (existing.start_time BETWEEN stage.new_alert_start AND stage.new_alert_end)
-                OR (existing.end_time BETWEEN stage.new_alert_start AND stage.new_alert_end)
-                -- Covers case when new alert is completely contained within the existing alert period
-                OR (stage.new_alert_start BETWEEN existing.start_time AND existing.end_time)
-                -- Active alerts have a NULL end_time, which makes BETWEEN comparisons return NULL (falsy).
-                -- Treat an active alert as overlapping if it started before the new alert period ends.
-                -- Only match the oldest staging row per device+alert_type in case stage contains multiple such rows
-                OR (existing.end_time IS NULL AND existing.start_time <= stage.new_alert_end AND stage.is_oldest_for_device)
-                -- Treat an active alert as overlapping if the new alert is active too.
-                -- Only match the oldest staging row per device+alert_type in case stage contains multiple such rows
-                OR (existing.end_time IS NULL AND stage.is_active AND stage.is_oldest_for_device)
-            )
+            ON existing.id = stage.matching_existing_alert_id
             -- still active
             WHEN MATCHED AND stage.is_active = true THEN UPDATE SET
                 existing.start_time = LEAST(existing.start_time, stage.new_alert_start),
@@ -813,7 +832,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
             -- not active
             WHEN MATCHED THEN UPDATE SET
                 existing.start_time = LEAST(existing.start_time, stage.new_alert_start),
-                existing.end_time = GREATEST(IFNULL(existing.end_time, stage.new_alert_end), stage.new_alert_end)
+                existing.end_time = stage.new_alert_end
             -- new alert
             WHEN NOT MATCHED THEN INSERT
                     (org_id, device_id, start_time, end_time, alert_type)
