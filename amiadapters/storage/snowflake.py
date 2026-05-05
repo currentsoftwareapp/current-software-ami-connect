@@ -441,8 +441,20 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
             self._upsert_daily_usage_threshold_alerts(
                 conn, min_date, max_date, self.org_id
             )
-
+    
     def _upsert_continuous_flow_alerts(
+        self,
+        conn,
+        min_date: datetime,
+        max_date: datetime,
+        org_id: str,
+        meter_alerts_table_name=METER_ALERTS_TABLE_NAME,
+        readings_table_name=READINGS_TABLE_NAME,
+    ):
+        self._prep_continuous_flow_alerts(conn=conn, min_date=min_date, max_date=max_date, org_id=org_id, meter_alerts_table_name=meter_alerts_table_name, readings_table_name=readings_table_name)
+        self._merge_alerts(conn, meter_alerts_table_name, "stage_continuous_flows")
+
+    def _prep_continuous_flow_alerts(
         self,
         conn,
         min_date: datetime,
@@ -608,7 +620,6 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
         logger.info(
             f"Detected {num_alerts_detected} continuous flow alerts in staging table for org_id {org_id}. Merging into {meter_alerts_table_name} table."
         )
-        self._merge_alerts(conn, meter_alerts_table_name, "stage_continuous_flows")
 
     def _upsert_daily_usage_threshold_alerts(
         self,
