@@ -51,6 +51,7 @@ from amiadapters.configuration.secrets import get_secrets, SecretType
 from amiadapters.events.base import EventSubscriber
 from amiadapters.outputs.local import LocalTaskOutputController
 from amiadapters.outputs.s3 import S3TaskOutputController
+from amiadapters.storage.snowflake import SnowflakeStorageSink
 
 HELP_MESSAGE__PROFILE = "Name of pipeline profile to get configuration for. Expected to match the name of the AWS profile in your AWS credentials file."
 ANNOTATION__PROFILE = Annotated[
@@ -222,6 +223,63 @@ def read_event_queue(
     """
     subscriber = EventSubscriber()
     subscriber.print_message_from_queue(name)
+
+
+@app.command()
+@sets_environment_from_profile
+def inspect_postprocessor(
+    org_id: Annotated[
+        str,
+        typer.Argument(help="Org ID to run postprocessor for."),
+    ],
+    device_id: Annotated[
+        str,
+        typer.Argument(help="Device ID to run postprocessor for."),
+    ],
+    start_date: Annotated[
+        datetime,
+        typer.Argument(help="Start of date range in YYYY-MM-DD format."),
+    ],
+    end_date: Annotated[
+        datetime,
+        typer.Argument(help="End of date range in YYYY-MM-DD format."),
+    ],
+    profile: ANNOTATION__PROFILE = None,
+):
+    """
+    Run postprocessor staging queries for a device and show what would be inserted into the staging tables,
+    without merging into the alerts table. Useful for debugging continuous flow and daily usage alert detection.
+    """
+    if not (org_id and device_id and start_date and end_date):
+        raise typer.BadParameter("Missing parameter")
+
+    config = AMIAdapterConfiguration.from_database()
+
+    adapters = config.adapters()
+    adapter = next((a for a in adapters if a.org_id == org_id), None)
+    if adapter is None:
+        raise typer.BadParameter(f"No adapter found for org_id '{org_id}'")
+
+    snowflake_sink = next(
+        (s for s in adapter.storage_sinks if isinstance(s, SnowflakeStorageSink)), None
+    )
+    if snowflake_sink is None:
+        raise typer.BadParameter(f"No Snowflake sink configured for org_id '{org_id}'")
+
+    conn = snowflake_sink.sink_config.connection()
+
+    snowflake_sink._prep_continuous_flow_alerts(conn, start_date, end_date, org_id)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM stage_continuous_flows WHERE device_id = ?", (device_id,)
+    )
+    continuous_flow_cols = [d[0] for d in cursor.description]
+    continuous_flow_rows = [
+        dict(zip(continuous_flow_cols, row)) for row in cursor.fetchall()
+    ]
+
+    print("\n=== Continuous Flow Staging ===")
+    pprint(continuous_flow_rows)
 
 
 ########################################################################################

@@ -953,6 +953,84 @@ class TestSnowflakeExtractedAlerts(BaseSnowflakeIntegrationTestCase):
         # The newer active alert is inserted as a new row.
         self._assert_num_rows(self.test_meter_alerts_table, 2)
 
+    def test_no_duplicate_row_error_when_two_closed_staging_rows_match_one_wide_existing_closed_alert(
+        self,
+    ):
+        """
+        Two inactive staging rows for the same device/alert_type can both overlap a single wider
+        existing inactive alert, e.g. during a backfill for days in the middle of the existing alert period. Only the
+        oldest staging row should match the existing alert (trimming its end_time); the non-oldest
+        row should be inserted as a new separate alert.
+        """
+        t = self.now
+        # First run: create a wide closed alert (T-10 → T+10)
+        existing_closed_alert = GeneralMeterAlert(
+            org_id="org1",
+            device_id="device_closed",
+            alert_type="Leak - Now",
+            start_time=t - datetime.timedelta(days=10),
+            end_time=t + datetime.timedelta(days=10),
+            source="beacon",
+        )
+        self.snowflake_sink._upsert_extracted_meter_alerts(
+            alerts=[existing_closed_alert],
+            conn=self.conn,
+            meter_alerts_table_name=self.test_meter_alerts_table,
+        )
+        self._assert_num_rows(self.test_meter_alerts_table, 1)
+
+        # Second run: two closed staging rows, both overlapping the existing wide alert.
+        # The oldest ends at T-5; the non-oldest starts at T-3.
+        oldest_oldest_staging_before_any_existing_alerts = GeneralMeterAlert(
+            org_id="org1",
+            device_id="device_closed",
+            alert_type="Leak - Now",
+            start_time=t - datetime.timedelta(days=100),
+            end_time=t - datetime.timedelta(days=99),
+            source="beacon",
+        )
+        oldest_matching_staging = GeneralMeterAlert(
+            org_id="org1",
+            device_id="device_closed",
+            alert_type="Leak - Now",
+            start_time=t - datetime.timedelta(days=8),
+            end_time=t - datetime.timedelta(days=5),
+            source="beacon",
+        )
+        non_oldest_staging = GeneralMeterAlert(
+            org_id="org1",
+            device_id="device_closed",
+            alert_type="Leak - Now",
+            start_time=t - datetime.timedelta(days=3),
+            end_time=t - datetime.timedelta(days=1),
+            source="beacon",
+        )
+
+        # Should not raise "Duplicate row detected"
+        self.snowflake_sink._upsert_extracted_meter_alerts(
+            alerts=[
+                oldest_oldest_staging_before_any_existing_alerts,
+                oldest_matching_staging,
+                non_oldest_staging,
+            ],
+            conn=self.conn,
+            meter_alerts_table_name=self.test_meter_alerts_table,
+        )
+
+        # Existing alert trimmed to oldest staging row's end; non-oldest inserted as new alert
+        self._assert_num_rows(self.test_meter_alerts_table, 3)
+
+        self.cs.execute(
+            f"SELECT start_time, end_time FROM {self.test_meter_alerts_table} ORDER BY start_time ASC"
+        )
+        rows = self.cs.fetchall()
+        # First alert: original start, trimmed to oldest staging row's end
+        self.assertEqual(rows[1][0], t - datetime.timedelta(days=10))
+        self.assertEqual(rows[1][1], t - datetime.timedelta(days=5))
+        # Second alert: non-oldest staging row inserted as new
+        self.assertEqual(rows[2][0], t - datetime.timedelta(days=3))
+        self.assertEqual(rows[2][1], t - datetime.timedelta(days=1))
+
     def test_catches_duplicate_alerts(self):
         alert = GeneralMeterAlert(
             org_id="org1",
