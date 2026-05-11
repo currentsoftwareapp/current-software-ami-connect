@@ -278,19 +278,8 @@ def inspect_postprocessor(
         dict(zip(continuous_flow_cols, row)) for row in cursor.fetchall()
     ]
 
-    # snowflake_sink._upsert_daily_usage_threshold_alerts(
-    #     conn, start_date, end_date, org_id
-    # )
-    # cursor.execute(
-    #     "SELECT * FROM stage_daily_usage_thresholds WHERE device_id = %s", (device_id,)
-    # )
-    # daily_usage_cols = [d[0] for d in cursor.description]
-    # daily_usage_rows = [dict(zip(daily_usage_cols, row)) for row in cursor.fetchall()]
-
     print("\n=== Continuous Flow Staging ===")
     pprint(continuous_flow_rows)
-    # print("\n=== Daily Usage Threshold Staging ===")
-    # pprint(daily_usage_rows)
 
 
 ########################################################################################
