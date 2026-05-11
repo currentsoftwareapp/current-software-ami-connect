@@ -264,7 +264,7 @@ class TestSnowflakeStorageSink(BaseTestCase):
             "run-id",
             self.extract_outputs,
         )
-        self.assertEqual(2, self.mock_cursor.execute.call_count)
+        self.assertEqual(6, self.mock_cursor.execute.call_count)
 
     def test_store_raw__skips_when_no_raw_loader(self):
         self.snowflake_sink.raw_loader = None

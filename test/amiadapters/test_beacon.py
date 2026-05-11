@@ -5,11 +5,22 @@ from unittest import mock
 
 from amiadapters.adapters.beacon import (
     Beacon360Adapter,
+    Beacon360Exception,
+    Beacon360LeakAlert,
     Beacon360MeterAndRead,
+    BeaconExceptionsRawTableLoader,
+    BeaconLeaksRawTableLoader,
+    BeaconRawTableLoader,
+    BeaconReportClient,
     BEACON_RAW_SNOWFLAKE_LOADER,
-    REQUESTED_COLUMNS,
+    REQUESTED_COLUMNS_FOR_READS,
 )
-from amiadapters.models import DataclassJSONEncoder, GeneralMeter, GeneralMeterRead
+from amiadapters.models import (
+    DataclassJSONEncoder,
+    GeneralMeter,
+    GeneralMeterAlert,
+    GeneralMeterRead,
+)
 from amiadapters.outputs.base import ExtractOutput
 
 from test.base_test_case import (
@@ -73,6 +84,7 @@ def beacon_meter_and_read_factory(
 ) -> Beacon360MeterAndRead:
     return Beacon360MeterAndRead(
         Account_ID=account_id,
+        Backflow_Gallons="",
         Battery_Level="good",
         Endpoint_SN=endpoint_id,
         Estimated_Flag="0",
@@ -208,7 +220,7 @@ class TestBeacon360Adapter(BaseTestCase):
             generate_report_request.kwargs["url"],
         )
         self.assertEqual(
-            ",".join(REQUESTED_COLUMNS),
+            ",".join(REQUESTED_COLUMNS_FOR_READS),
             generate_report_request.kwargs["params"]["Header_Columns"],
         )
         self.assertEqual(
@@ -356,6 +368,102 @@ class TestBeacon360Adapter(BaseTestCase):
         ]
 
         self.assertEqual(expected, result)
+
+    def test_leaks_report_to_output(self):
+        leaks_csv = (
+            "Account_ID,Endpoint_SN,Current_Leak_Start_Date,Current_Leak_Rate,Current_Leak_Unit\n"
+            "303022,1470158170,2024-08-01 00:00,1.5,Gallons Per Hour\n"
+            "303023,1470158171,2024-08-02 00:00,2.0,Gallons Per Hour\n"
+        )
+        result = list(self.adapter._leaks_report_to_output_stream(leaks_csv))
+        result = [Beacon360LeakAlert(**json.loads(d)) for d in result]
+
+        expected = [
+            Beacon360LeakAlert(
+                Account_ID="303022",
+                Endpoint_SN="1470158170",
+                Current_Leak_Start_Date="2024-08-01 00:00",
+                Current_Leak_Rate="1.5",
+                Current_Leak_Unit="Gallons Per Hour",
+            ),
+            Beacon360LeakAlert(
+                Account_ID="303023",
+                Endpoint_SN="1470158171",
+                Current_Leak_Start_Date="2024-08-02 00:00",
+                Current_Leak_Rate="2.0",
+                Current_Leak_Unit="Gallons Per Hour",
+            ),
+        ]
+        self.assertEqual(expected, result)
+
+    def test_exceptions_report_to_output(self):
+        exceptions_csv = (
+            "Account_ID,Endpoint_SN,Exception_Start_Date,Exception_End_Date,Exception\n"
+            "303022,1470158170,2024-08-01 00:00,2024-08-02 00:00,Tamper\n"
+            "303022,1470158170,2024-08-03 00:00,,EncoderAlert\n"
+        )
+        result = list(self.adapter._exceptions_report_to_output_stream(exceptions_csv))
+        result = [Beacon360Exception(**json.loads(d)) for d in result]
+
+        expected = [
+            Beacon360Exception(
+                Account_ID="303022",
+                Endpoint_SN="1470158170",
+                Exception_Start_Date="2024-08-01 00:00",
+                Exception_End_Date="2024-08-02 00:00",
+                Exception="Tamper",
+            ),
+            Beacon360Exception(
+                Account_ID="303022",
+                Endpoint_SN="1470158170",
+                Exception_Start_Date="2024-08-03 00:00",
+                Exception_End_Date="",
+                Exception="EncoderAlert",
+            ),
+        ]
+        self.assertEqual(expected, result)
+
+    def test_transform_meter_alerts__exceptions(self):
+        exception = Beacon360Exception(
+            Account_ID="303022",
+            Endpoint_SN="130615549",
+            Exception_Start_Date="2024-08-01 00:00",
+            Exception_End_Date="2024-08-02 00:00",
+            Exception="Tamper",
+        )
+        extract_outputs = ExtractOutput(
+            {"exceptions.json": json.dumps(exception, cls=DataclassJSONEncoder)}
+        )
+        result = self.adapter._transform_meter_alerts("run-id", extract_outputs)
+
+        self.assertEqual(1, len(result))
+        alert = result[0]
+        self.assertEqual("test-org", alert.org_id)
+        self.assertEqual("130615549", alert.device_id)
+        self.assertEqual("Tamper", alert.alert_type)
+        self.assertEqual(
+            self.adapter.org_timezone.localize(datetime.datetime(2024, 8, 1, 0, 0)),
+            alert.start_time,
+        )
+        self.assertEqual(
+            self.adapter.org_timezone.localize(datetime.datetime(2024, 8, 2, 0, 0)),
+            alert.end_time,
+        )
+        self.assertEqual("Beacon 360", alert.source)
+
+    def test_transform_meter_alerts__active_exception_has_no_end_time(self):
+        exception = Beacon360Exception(
+            Account_ID="303022",
+            Endpoint_SN="130615549",
+            Exception_Start_Date="2024-08-01 00:00",
+            Exception_End_Date="",
+            Exception="EncoderAlert",
+        )
+        extract_outputs = ExtractOutput(
+            {"exceptions.json": json.dumps(exception, cls=DataclassJSONEncoder)}
+        )
+        result = self.adapter._transform_meter_alerts("run-id", extract_outputs)
+        self.assertIsNone(result[0].end_time)
 
     def test_transform_meters_and_reads(self):
         raw_meters_with_reads = [
@@ -610,6 +718,155 @@ class TestBeacon360Adapter(BaseTestCase):
         self.assertListEqual(expected_reads, transformed_reads)
 
 
+class TestBeaconReportClient(BaseTestCase):
+
+    ENDPOINT = "/v2/eds/range"
+    PARAMS = {"Start_Date": "2024-01-01", "End_Date": "2024-01-02"}
+    REPORT_TEXT = "col1,col2\nval1,val2\n"
+
+    def setUp(self):
+        self.client = BeaconReportClient(user="user", password="pass")
+
+    @mock.patch(
+        "requests.get",
+        side_effect=[
+            mocked_get_range_report_status_not_finished(),
+            mocked_get_range_report_status_finished(),
+            mocked_get_report_from_link(text=REPORT_TEXT),
+        ],
+    )
+    @mock.patch("requests.post", side_effect=[mocked_create_range_report()])
+    @mock.patch("time.sleep")
+    def test_fetch__returns_report_text(self, mock_sleep, mock_post, mock_get):
+        result = self.client.fetch(self.ENDPOINT, self.PARAMS)
+        self.assertEqual(self.REPORT_TEXT, result)
+
+    @mock.patch(
+        "requests.get",
+        side_effect=[
+            mocked_get_range_report_status_not_finished(),
+            mocked_get_range_report_status_finished(),
+            mocked_get_report_from_link(text=REPORT_TEXT),
+        ],
+    )
+    @mock.patch("requests.post", side_effect=[mocked_create_range_report()])
+    @mock.patch("time.sleep")
+    def test_fetch__posts_to_correct_url(self, mock_sleep, mock_post, mock_get):
+        self.client.fetch(self.ENDPOINT, self.PARAMS)
+        post_call = mock_post.call_args_list[0]
+        self.assertEqual(
+            "https://api.beaconama.net/v2/eds/range", post_call.kwargs["url"]
+        )
+        self.assertEqual(self.PARAMS, post_call.kwargs["params"])
+
+    @mock.patch(
+        "requests.get",
+        side_effect=[
+            mocked_get_range_report_status_not_finished(),
+            mocked_get_range_report_status_finished(),
+            mocked_get_report_from_link(text=REPORT_TEXT),
+        ],
+    )
+    @mock.patch("requests.post", side_effect=[mocked_create_range_report()])
+    @mock.patch("time.sleep")
+    def test_fetch__polls_status_then_downloads(self, mock_sleep, mock_post, mock_get):
+        self.client.fetch(self.ENDPOINT, self.PARAMS)
+        # Two status polls + one download
+        self.assertEqual(3, mock_get.call_count)
+        self.assertIn(
+            "https://api.beaconama.net/v2/eds/status/",
+            mock_get.call_args_list[0].kwargs["url"],
+        )
+        self.assertIn(
+            "https://api.beaconama.net/v2/eds/status/",
+            mock_get.call_args_list[1].kwargs["url"],
+        )
+        self.assertIn(
+            "https://api.beaconama.net/v1/content/",
+            mock_get.call_args_list[2].kwargs["url"],
+        )
+        self.assertEqual(1, mock_sleep.call_count)
+
+    @mock.patch("requests.get", side_effect=[])
+    @mock.patch("requests.post", side_effect=[mocked_response_429()])
+    @mock.patch("time.sleep")
+    def test_fetch__raises_on_rate_limit(self, mock_sleep, mock_post, mock_get):
+        with self.assertRaises(Exception) as ctx:
+            self.client.fetch(self.ENDPOINT, self.PARAMS)
+        self.assertIn("Rate limit exceeded", str(ctx.exception))
+
+    @mock.patch("requests.get", side_effect=[])
+    @mock.patch("requests.post", side_effect=[mocked_response_500()])
+    @mock.patch("time.sleep")
+    def test_fetch__raises_on_non_202(self, mock_sleep, mock_post, mock_get):
+        with self.assertRaises(Exception) as ctx:
+            self.client.fetch(self.ENDPOINT, self.PARAMS)
+        self.assertIn("Failed request to generate report", str(ctx.exception))
+
+    @mock.patch("requests.get", side_effect=[mocked_response_500()])
+    @mock.patch("requests.post", side_effect=[mocked_create_range_report()])
+    @mock.patch("time.sleep")
+    def test_fetch__raises_when_status_poll_returns_non_200(
+        self, mock_sleep, mock_post, mock_get
+    ):
+        with self.assertRaises(Exception) as ctx:
+            self.client.fetch(self.ENDPOINT, self.PARAMS)
+        self.assertIn("Failed request to get report status", str(ctx.exception))
+
+    @mock.patch("requests.get", side_effect=[mocked_exception_from_status_check()])
+    @mock.patch("requests.post", side_effect=[mocked_create_range_report()])
+    @mock.patch("time.sleep")
+    def test_fetch__raises_when_status_indicates_exception(
+        self, mock_sleep, mock_post, mock_get
+    ):
+        with self.assertRaises(Exception) as ctx:
+            self.client.fetch(self.ENDPOINT, self.PARAMS)
+        self.assertIn("Exception found in report status", str(ctx.exception))
+
+    @mock.patch(
+        "requests.get",
+        side_effect=[mocked_get_range_report_status_not_finished()] * 500,
+    )
+    @mock.patch("requests.post", side_effect=[mocked_create_range_report()])
+    @mock.patch("time.sleep")
+    def test_fetch__raises_when_max_poll_attempts_reached(
+        self, mock_sleep, mock_post, mock_get
+    ):
+        with self.assertRaises(Exception) as ctx:
+            self.client.fetch(self.ENDPOINT, self.PARAMS)
+        self.assertIn("Reached max attempts", str(ctx.exception))
+
+    @mock.patch(
+        "requests.get",
+        side_effect=[
+            mocked_get_range_report_status_finished(),
+            Exception("connection error"),
+            mocked_get_report_from_link(text=REPORT_TEXT),
+        ],
+    )
+    @mock.patch("requests.post", side_effect=[mocked_create_range_report()])
+    @mock.patch("time.sleep")
+    def test_fetch__retries_download_once_on_exception(
+        self, mock_sleep, mock_post, mock_get
+    ):
+        result = self.client.fetch(self.ENDPOINT, self.PARAMS)
+        self.assertEqual(self.REPORT_TEXT, result)
+        self.assertEqual(1, mock_sleep.call_count)
+
+    @mock.patch(
+        "requests.get",
+        side_effect=[mocked_get_range_report_status_finished(), mocked_response_500()],
+    )
+    @mock.patch("requests.post", side_effect=[mocked_create_range_report()])
+    @mock.patch("time.sleep")
+    def test_fetch__raises_when_download_returns_non_200(
+        self, mock_sleep, mock_post, mock_get
+    ):
+        with self.assertRaises(Exception) as ctx:
+            self.client.fetch(self.ENDPOINT, self.PARAMS)
+        self.assertIn("Failed request to download report", str(ctx.exception))
+
+
 class TestBeaconRawSnowflakeLoader(BaseTestCase):
 
     def setUp(self):
@@ -617,11 +874,27 @@ class TestBeaconRawSnowflakeLoader(BaseTestCase):
         self.mock_cursor = mock.Mock()
         self.conn.cursor.return_value = self.mock_cursor
         meter_and_read = beacon_meter_and_read_factory()
+        leak = Beacon360LeakAlert(
+            Account_ID="303022",
+            Endpoint_SN="1470158170",
+            Current_Leak_Start_Date="2024-08-01 00:00",
+            Current_Leak_Rate="1.5",
+            Current_Leak_Unit="Gallons Per Hour",
+        )
+        exception = Beacon360Exception(
+            Account_ID="303022",
+            Endpoint_SN="1470158170",
+            Exception_Start_Date="2024-08-01 00:00",
+            Exception_End_Date="2024-08-02 00:00",
+            Exception="Tamper",
+        )
         self.extract_outputs = ExtractOutput(
             {
                 "meters_and_reads.json": json.dumps(
                     meter_and_read, cls=DataclassJSONEncoder
-                )
+                ),
+                "leaks.json": json.dumps(leak, cls=DataclassJSONEncoder),
+                "exceptions.json": json.dumps(exception, cls=DataclassJSONEncoder),
             }
         )
 
@@ -634,5 +907,39 @@ class TestBeaconRawSnowflakeLoader(BaseTestCase):
             self.extract_outputs,
             self.conn,
         )
-        self.assertEqual(2, self.mock_cursor.execute.call_count)
-        self.assertEqual(1, self.mock_cursor.executemany.call_count)
+        # 2 execute (CREATE temp + MERGE) per table loader × 3 loaders
+        self.assertEqual(6, self.mock_cursor.execute.call_count)
+        # 1 executemany (INSERT) per table loader × 3 loaders
+        self.assertEqual(3, self.mock_cursor.executemany.call_count)
+
+    def test_load__reads_table(self):
+        loader = BeaconRawTableLoader()
+        raw_data = loader.prepare_raw_data(self.extract_outputs)
+        self.assertEqual(1, len(raw_data))
+        self.assertEqual("22", raw_data[0][0])  # device_id = Endpoint_SN
+
+    def test_load__leaks_table(self):
+        loader = BeaconLeaksRawTableLoader()
+        raw_data = loader.prepare_raw_data(self.extract_outputs)
+        self.assertEqual(1, len(raw_data))
+        self.assertEqual("1470158170", raw_data[0][0])  # Endpoint_SN
+        self.assertEqual("303022", raw_data[0][1])  # Account_ID
+
+    def test_load__leaks_table__empty_when_no_leaks_file(self):
+        outputs = ExtractOutput({"meters_and_reads.json": ""})
+        loader = BeaconLeaksRawTableLoader()
+        raw_data = loader.prepare_raw_data(outputs)
+        self.assertEqual([], raw_data)
+
+    def test_load__exceptions_table(self):
+        loader = BeaconExceptionsRawTableLoader()
+        raw_data = loader.prepare_raw_data(self.extract_outputs)
+        self.assertEqual(1, len(raw_data))
+        self.assertEqual("1470158170", raw_data[0][0])  # Endpoint_SN
+        self.assertEqual("303022", raw_data[0][1])  # Account_ID
+
+    def test_load__exceptions_table__empty_when_no_exceptions_file(self):
+        outputs = ExtractOutput({"meters_and_reads.json": ""})
+        loader = BeaconExceptionsRawTableLoader()
+        raw_data = loader.prepare_raw_data(outputs)
+        self.assertEqual([], raw_data)
