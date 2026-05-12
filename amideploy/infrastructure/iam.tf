@@ -142,3 +142,8 @@ resource "aws_iam_role_policy_attachment" "attach_sqs_policy" {
   role       = aws_iam_role.ami_connect_pipeline.name
   policy_arn = aws_iam_policy.sqs_access_policy.arn
 }
+
+resource "aws_iam_role_policy_attachment" "attach_ssm_policy" {
+  role       = aws_iam_role.ami_connect_pipeline.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
