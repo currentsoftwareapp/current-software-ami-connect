@@ -13,6 +13,7 @@ from amiadapters.models import (
     GeneralMeter,
     GeneralMeterAlert,
     GeneralMeterRead,
+    MeterAlertSource,
 )
 from amiadapters.outputs.base import ExtractOutput
 from amiadapters.storage.snowflake import RawSnowflakeLoader, RawSnowflakeTableLoader
@@ -568,7 +569,7 @@ class SubecaAdapter(BaseAMIAdapter):
                 alert_type=alarm.name,
                 start_time=datetime.fromisoformat(alarm.startAt),
                 end_time=datetime.fromisoformat(alarm.endAt) if alarm.endAt else None,
-                source="subeca",
+                source=MeterAlertSource.SUBECA,
             )
             result.append(alert)
         return result

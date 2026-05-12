@@ -732,7 +732,7 @@ class TestSubecaAdapter(BaseTestCase):
         self.assertEqual(
             datetime.datetime(2026, 1, 2, 1, 0, 0, tzinfo=pytz.UTC), alert.end_time
         )
-        self.assertEqual("subeca", alert.source)
+        self.assertEqual("Subeca", alert.source)
 
     def test_active_alarm_maps_to_none_end_time(self):
         alarm = SubecaAlarm(

@@ -12,6 +12,7 @@ from amiadapters.models import (
     GeneralMeterAlert,
     GeneralMeterRead,
     GeneralMeterUnitOfMeasure,
+    MeterAlertSource,
 )
 from amiadapters.configuration.models import (
     ConfiguredStorageSink,
@@ -592,7 +593,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 (m.last_flowtime <= l.new_alert_end) as IS_ACTIVE,
                 'continuous_flow' as alert_type,
                 NULL::INTEGER AS matching_existing_alert_id,
-                'ami_connect' as source
+                ? as source
             from leaks_deduped l
             left join (
                 SELECT 
@@ -619,6 +620,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 min_date_to_process,
                 max_date,
                 threshold_streak_for_continuous_flow_hours,
+                MeterAlertSource.CURRENT,
             ),
         )
 
@@ -748,7 +750,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                     (m.last_flowtime <= s.new_alert_end) as IS_ACTIVE,
                     'high_daily_usage' as alert_type,
                     NULL::INTEGER AS matching_existing_alert_id,
-                    'ami_connect' as source
+                    ? as source
                 FROM new_alerts s
                 LEFT JOIN (
                     SELECT 
@@ -777,6 +779,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 min_date,
                 max_date,
                 converted_daily_high_daily_usage_threshold,
+                MeterAlertSource.CURRENT,
             ),
         )
 

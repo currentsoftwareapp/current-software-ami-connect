@@ -138,3 +138,13 @@ class GeneralMeterUnitOfMeasure:
     GALLON = "GALLON"
     GALLONS = "GALLONS"
     KILO_GALLON = "KGAL"
+
+
+class MeterAlertSource:
+    """
+    Valid values for a meter alert's source. This value is displayed to users.
+    """
+
+    CURRENT = "Current"
+    BEACON_360 = "Beacon 360"
+    SUBECA = "Subeca"

@@ -344,7 +344,7 @@ class TestSnowflakeDailyUsageThresholdAlerts(BaseSnowflakeIntegrationTestCase):
             start_streak.replace(hour=0, minute=0, second=0, microsecond=0)
             + datetime.timedelta(days=3),
         )  # IS_ACTIVE should be false, so end_time should be populated
-        self.assertEqual(alert[3], "ami_connect")
+        self.assertEqual(alert[3], "Current")
 
     def test_alert_triggers_on_high_daily_usage_and_sets_as_active(self):
         self._assert_num_rows(self.test_meter_alerts_table, 0)
@@ -565,7 +565,7 @@ class TestSnowflakeContinuousFlowAlerts(BaseSnowflakeIntegrationTestCase):
         self.assertIsNone(
             alert[2]
         )  # IS_ACTIVE should be true, so end_time should be NULL
-        self.assertEqual(alert[3], "ami_connect")
+        self.assertEqual(alert[3], "Current")
 
     def test_no_alert_when_streak_is_too_short(self):
         device_id = "short_streak_device"
