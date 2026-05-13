@@ -22,6 +22,7 @@ from amiadapters.models import (
     GeneralMeter,
     GeneralMeterAlert,
     GeneralMeterRead,
+    MeterAlertSource,
 )
 from amiadapters.outputs.base import ExtractOutput
 from amiadapters.storage.snowflake import RawSnowflakeLoader, RawSnowflakeTableLoader
@@ -465,7 +466,7 @@ class Beacon360Adapter(BaseAMIAdapter):
                     end_time=self.datetime_from_iso_str(
                         exception.Exception_End_Date, self.org_timezone
                     ),
-                    source="Beacon 360",
+                    source=MeterAlertSource.BEACON_360,
                 )
             )
 
