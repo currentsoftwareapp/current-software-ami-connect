@@ -865,5 +865,5 @@ class TestSubecaRawSnowflakeLoader(BaseTestCase):
         self.assertTrue(self.snowflake_conn.cursor.return_value.execute.called)
         self.assertTrue(self.snowflake_conn.cursor.return_value.executemany.called)
         # Each of the 3 load methods calls cursor() three times
-        # So we expect at least 3 * 3 = 9 calls to snowflake_conn.cursor()
-        self.assertEqual(self.snowflake_conn.cursor.call_count, 9)
+        # So we expect at least 3 * 4 = 12 calls to snowflake_conn.cursor()
+        self.assertEqual(self.snowflake_conn.cursor.call_count, 12)
