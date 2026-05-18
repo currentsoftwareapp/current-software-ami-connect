@@ -641,11 +641,32 @@ class RawUsageLoader(RawSnowflakeTableLoader):
         ]
 
 
+class RawAlarmsLoader(RawSnowflakeTableLoader):
+
+    def table_name(self) -> str:
+        return "SUBECA_ALARMS_BASE"
+
+    def columns(self) -> List[str]:
+        return list(SubecaAlarm.__dataclass_fields__.keys())
+
+    def unique_by(self) -> List[str]:
+        return ["deviceId", "name", "startAt"]
+
+    def prepare_raw_data(self, extract_outputs):
+        raw_data = extract_outputs.load_from_file(
+            "alarms.json", SubecaAlarm, allow_empty=True
+        )
+        return [
+            tuple(i.__getattribute__(col) for col in self.columns()) for i in raw_data
+        ]
+
+
 SUBECA_RAW_SNOWFLAKE_LOADER = RawSnowflakeLoader.with_table_loaders(
     [
         RawAccountsLoader(),
         RawLatestReadingLoader(),
         RawUsageLoader(),
+        RawAlarmsLoader(),
     ]
 )
 
