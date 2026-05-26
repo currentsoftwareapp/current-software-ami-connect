@@ -382,7 +382,7 @@ class TestSnowflakeDailyUsageThresholdAlerts(BaseSnowflakeIntegrationTestCase):
 
         # silent_device had a single high-usage read 120 days ago and nothing since.
         # active_device has recent reads, pushing the org-wide max flowtime to now.
-        # The silent device's last read is 30 days older than the org max — beyond the
+        # The silent device's last read is 120 days older than the org max — beyond the
         # staleness threshold — so its alert should be closed.
         silent_start = self.now - datetime.timedelta(days=120)
         self._insert_reading_streak(silent_device, silent_start, 24, 100)
