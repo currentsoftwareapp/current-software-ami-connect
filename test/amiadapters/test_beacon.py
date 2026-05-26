@@ -14,6 +14,7 @@ from amiadapters.adapters.beacon import (
     BeaconReportClient,
     BEACON_RAW_SNOWFLAKE_LOADER,
     REQUESTED_COLUMNS_FOR_READS,
+    STALE_OPEN_TAMPER_THRESHOLD,
 )
 from amiadapters.models import (
     DataclassJSONEncoder,
@@ -463,6 +464,75 @@ class TestBeacon360Adapter(BaseTestCase):
             {"exceptions.json": json.dumps(exception, cls=DataclassJSONEncoder)}
         )
         result = self.adapter._transform_meter_alerts("run-id", extract_outputs)
+        self.assertIsNone(result[0].end_time)
+
+    def test_transform_meter_alerts__skips_exception_with_empty_endpoint_sn(self):
+        exception = Beacon360Exception(
+            Account_ID="303022",
+            Endpoint_SN="",
+            Exception_Start_Date="2024-08-01 00:00",
+            Exception_End_Date="2024-08-02 00:00",
+            Exception="Tamper",
+        )
+        extract_outputs = ExtractOutput(
+            {"exceptions.json": json.dumps(exception, cls=DataclassJSONEncoder)}
+        )
+        result = self.adapter._transform_meter_alerts("run-id", extract_outputs)
+        self.assertEqual([], result)
+
+    def test_transform_meter_alerts__stale_open_endpoint_tamper_is_capped(self):
+        exception = Beacon360Exception(
+            Account_ID="303022",
+            Endpoint_SN="130615549",
+            Exception_Start_Date="2020-01-01 00:00",
+            Exception_End_Date="",
+            Exception="Endpoint Tamper",
+        )
+        extract_outputs = ExtractOutput(
+            {"exceptions.json": json.dumps(exception, cls=DataclassJSONEncoder)}
+        )
+        result = self.adapter._transform_meter_alerts("run-id", extract_outputs)
+        self.assertEqual(1, len(result))
+        alert = result[0]
+        expected_start = self.adapter.org_timezone.localize(
+            datetime.datetime(2020, 1, 1, 0, 0)
+        )
+        self.assertEqual(expected_start, alert.start_time)
+        self.assertEqual(expected_start + STALE_OPEN_TAMPER_THRESHOLD, alert.end_time)
+
+    @mock.patch("amiadapters.adapters.beacon.datetime")
+    def test_transform_meter_alerts__recent_open_endpoint_tamper_is_not_capped(
+        self, mock_dt
+    ):
+        start = self.adapter.org_timezone.localize(datetime.datetime(2026, 5, 1, 0, 0))
+        mock_dt.now.return_value = start + datetime.timedelta(days=10)
+        exception = Beacon360Exception(
+            Account_ID="303022",
+            Endpoint_SN="130615549",
+            Exception_Start_Date="2026-05-01 00:00",
+            Exception_End_Date="",
+            Exception="Endpoint Tamper",
+        )
+        extract_outputs = ExtractOutput(
+            {"exceptions.json": json.dumps(exception, cls=DataclassJSONEncoder)}
+        )
+        result = self.adapter._transform_meter_alerts("run-id", extract_outputs)
+        self.assertEqual(1, len(result))
+        self.assertIsNone(result[0].end_time)
+
+    def test_transform_meter_alerts__old_non_tamper_open_exception_is_not_capped(self):
+        exception = Beacon360Exception(
+            Account_ID="303022",
+            Endpoint_SN="130615549",
+            Exception_Start_Date="2020-01-01 00:00",
+            Exception_End_Date="",
+            Exception="EncoderAlert",
+        )
+        extract_outputs = ExtractOutput(
+            {"exceptions.json": json.dumps(exception, cls=DataclassJSONEncoder)}
+        )
+        result = self.adapter._transform_meter_alerts("run-id", extract_outputs)
+        self.assertEqual(1, len(result))
         self.assertIsNone(result[0].end_time)
 
     def test_transform_meters_and_reads(self):

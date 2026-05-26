@@ -29,6 +29,8 @@ from amiadapters.storage.snowflake import RawSnowflakeLoader, RawSnowflakeTableL
 
 logger = logging.getLogger(__name__)
 
+STALE_OPEN_TAMPER_THRESHOLD = timedelta(days=30)
+
 
 @dataclass
 class Beacon360MeterAndRead:
@@ -455,22 +457,57 @@ class Beacon360Adapter(BaseAMIAdapter):
             "exceptions.json", Beacon360Exception, allow_empty=True
         )
         for exception in exceptions:
+            if not exception.Endpoint_SN:
+                logger.warning(
+                    f"Skipping exception with missing Endpoint_SN: type={exception.Exception} start={exception.Exception_Start_Date}"
+                )
+                continue
+
+            start_time = self.datetime_from_iso_str(
+                exception.Exception_Start_Date, self.org_timezone
+            )
+            end_time = self.datetime_from_iso_str(
+                exception.Exception_End_Date, self.org_timezone
+            )
+
+            if capped_end_time := self._calculate_capped_alert_end_time(
+                start_time, end_time, exception.Exception
+            ):
+                logger.info(
+                    f"Capping stale open {exception.Exception} for {exception.Endpoint_SN} started {start_time}: setting end_time to {end_time}"
+                )
+                end_time = capped_end_time
+
             result.append(
                 GeneralMeterAlert(
                     org_id=self.org_id,
                     device_id=exception.Endpoint_SN,
                     alert_type=exception.Exception,
-                    start_time=self.datetime_from_iso_str(
-                        exception.Exception_Start_Date, self.org_timezone
-                    ),
-                    end_time=self.datetime_from_iso_str(
-                        exception.Exception_End_Date, self.org_timezone
-                    ),
+                    start_time=start_time,
+                    end_time=end_time,
                     source=MeterAlertSource.BEACON_360,
                 )
             )
 
         return result
+
+    def _calculate_capped_alert_end_time(
+        self, start_time: datetime, end_time: datetime, alert_type: str
+    ) -> datetime:
+        """
+        For certain types of alerts that have been open for a long time, cap the end time to avoid having stale open alerts in our system.
+        This is particularly relevant for tamper alerts, which may be left open indefinitely in the Beacon 360 system
+        even if the underlying issue has been resolved.
+        """
+        if (
+            end_time is None
+            and alert_type == "Endpoint Tamper"
+            and start_time is not None
+            and (datetime.now(tz=start_time.tzinfo) - start_time)
+            > STALE_OPEN_TAMPER_THRESHOLD
+        ):
+            return start_time + STALE_OPEN_TAMPER_THRESHOLD
+        return None
 
     def _cached_report_file(
         self, extract_range_start: datetime, extract_range_end: datetime
