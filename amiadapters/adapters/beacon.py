@@ -458,7 +458,7 @@ class Beacon360Adapter(BaseAMIAdapter):
         )
         for exception in exceptions:
             if not exception.Endpoint_SN:
-                logger.warning(
+                logger.info(
                     f"Skipping exception with missing Endpoint_SN: type={exception.Exception} start={exception.Exception_Start_Date}"
                 )
                 continue
@@ -466,6 +466,12 @@ class Beacon360Adapter(BaseAMIAdapter):
             start_time = self.datetime_from_iso_str(
                 exception.Exception_Start_Date, self.org_timezone
             )
+            if not start_time:
+                logger.warning(
+                    f"Skipping exception with missing or invalid Exception_Start_Date: type={exception.Exception} device={exception.Endpoint_SN}"
+                )
+                continue
+
             end_time = self.datetime_from_iso_str(
                 exception.Exception_End_Date, self.org_timezone
             )
@@ -475,7 +481,7 @@ class Beacon360Adapter(BaseAMIAdapter):
                 end_time,
             ):
                 logger.info(
-                    f"Capping stale open {exception.Exception} for {exception.Endpoint_SN} started {start_time}: setting end_time to {end_time}"
+                    f"Capping stale open {exception.Exception} for {exception.Endpoint_SN} started {start_time}: setting end_time to {capped_end_time}"
                 )
                 end_time = capped_end_time
 
