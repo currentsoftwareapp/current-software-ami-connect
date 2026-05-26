@@ -375,6 +375,70 @@ class TestSnowflakeDailyUsageThresholdAlerts(BaseSnowflakeIntegrationTestCase):
             alert[2]
         )  # IS_ACTIVE should be true, so end_time should be NULL
 
+    def test_alert_closes_when_device_has_gone_silent_relative_to_org(self):
+        self._assert_num_rows(self.test_meter_alerts_table, 0)
+        silent_device = "silent_device"
+        active_device = "active_device"
+
+        # silent_device had a single high-usage read 30 days ago and nothing since.
+        # active_device has recent reads, pushing the org-wide max flowtime to now.
+        # The silent device's last read is 30 days older than the org max — beyond the
+        # 14-day staleness threshold — so its alert should be closed.
+        silent_start = self.now - datetime.timedelta(days=30)
+        self._insert_reading_streak(silent_device, silent_start, 24, 100)
+
+        active_start = self.now - datetime.timedelta(days=1)
+        self._insert_reading_streak(active_device, active_start, 24, 0.1)
+
+        self.snowflake_sink._upsert_daily_usage_threshold_alerts(
+            self.conn,
+            silent_start - datetime.timedelta(days=1),
+            self.now,
+            org_id="org1",
+            meter_alerts_table_name=self.test_meter_alerts_table,
+            readings_table_name=self.test_readings_table,
+        )
+
+        self._assert_num_rows(self.test_meter_alerts_table, 1)
+        self.cs.execute(
+            f"SELECT alert_type, end_time FROM {self.test_meter_alerts_table}"
+        )
+        alert = self.cs.fetchone()
+        self.assertEqual(alert[0], "high_daily_usage")
+        self.assertIsNotNone(alert[1])  # IS_ACTIVE should be false — alert is closed
+
+    def test_alert_stays_active_when_device_recent_relative_to_org(self):
+        self._assert_num_rows(self.test_meter_alerts_table, 0)
+        high_usage_device = "high_usage_device"
+        other_device = "other_device"
+
+        # high_usage_device had high usage 5 days ago with no reads since.
+        # other_device has reads up to now, so org max is now.
+        # The high_usage_device's last read is only 5 days older than org max — within
+        # the 14-day staleness threshold — so the alert should remain active.
+        streak_start = self.now - datetime.timedelta(days=5)
+        self._insert_reading_streak(high_usage_device, streak_start, 24, 100)
+
+        other_start = self.now - datetime.timedelta(days=1)
+        self._insert_reading_streak(other_device, other_start, 24, 0.1)
+
+        self.snowflake_sink._upsert_daily_usage_threshold_alerts(
+            self.conn,
+            streak_start - datetime.timedelta(days=1),
+            self.now,
+            org_id="org1",
+            meter_alerts_table_name=self.test_meter_alerts_table,
+            readings_table_name=self.test_readings_table,
+        )
+
+        self._assert_num_rows(self.test_meter_alerts_table, 1)
+        self.cs.execute(
+            f"SELECT alert_type, end_time FROM {self.test_meter_alerts_table}"
+        )
+        alert = self.cs.fetchone()
+        self.assertEqual(alert[0], "high_daily_usage")
+        self.assertIsNone(alert[1])  # IS_ACTIVE should be true — alert stays open
+
     def test_alert_extended_on_high_daily_usage_over_multiple_days(self):
         self._assert_num_rows(self.test_meter_alerts_table, 0)
         device_id = "high_usage_device"
