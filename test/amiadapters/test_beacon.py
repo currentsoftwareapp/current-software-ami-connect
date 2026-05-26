@@ -14,7 +14,7 @@ from amiadapters.adapters.beacon import (
     BeaconReportClient,
     BEACON_RAW_SNOWFLAKE_LOADER,
     REQUESTED_COLUMNS_FOR_READS,
-    STALE_OPEN_TAMPER_THRESHOLD,
+    METER_ALERT_STALE_THRESHOLD,
 )
 from amiadapters.models import (
     DataclassJSONEncoder,
@@ -456,7 +456,7 @@ class TestBeacon360Adapter(BaseTestCase):
         exception = Beacon360Exception(
             Account_ID="303022",
             Endpoint_SN="130615549",
-            Exception_Start_Date="2024-08-01 00:00",
+            Exception_Start_Date=datetime.datetime.now().isoformat(),
             Exception_End_Date="",
             Exception="EncoderAlert",
         )
@@ -498,7 +498,7 @@ class TestBeacon360Adapter(BaseTestCase):
             datetime.datetime(2020, 1, 1, 0, 0)
         )
         self.assertEqual(expected_start, alert.start_time)
-        self.assertEqual(expected_start + STALE_OPEN_TAMPER_THRESHOLD, alert.end_time)
+        self.assertEqual(expected_start + METER_ALERT_STALE_THRESHOLD, alert.end_time)
 
     @mock.patch("amiadapters.adapters.beacon.datetime")
     def test_transform_meter_alerts__recent_open_endpoint_tamper_is_not_capped(
@@ -512,21 +512,6 @@ class TestBeacon360Adapter(BaseTestCase):
             Exception_Start_Date="2026-05-01 00:00",
             Exception_End_Date="",
             Exception="Endpoint Tamper",
-        )
-        extract_outputs = ExtractOutput(
-            {"exceptions.json": json.dumps(exception, cls=DataclassJSONEncoder)}
-        )
-        result = self.adapter._transform_meter_alerts("run-id", extract_outputs)
-        self.assertEqual(1, len(result))
-        self.assertIsNone(result[0].end_time)
-
-    def test_transform_meter_alerts__old_non_tamper_open_exception_is_not_capped(self):
-        exception = Beacon360Exception(
-            Account_ID="303022",
-            Endpoint_SN="130615549",
-            Exception_Start_Date="2020-01-01 00:00",
-            Exception_End_Date="",
-            Exception="EncoderAlert",
         )
         extract_outputs = ExtractOutput(
             {"exceptions.json": json.dumps(exception, cls=DataclassJSONEncoder)}

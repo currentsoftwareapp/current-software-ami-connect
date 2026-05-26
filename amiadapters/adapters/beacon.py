@@ -29,7 +29,7 @@ from amiadapters.storage.snowflake import RawSnowflakeLoader, RawSnowflakeTableL
 
 logger = logging.getLogger(__name__)
 
-STALE_OPEN_TAMPER_THRESHOLD = timedelta(days=30)
+METER_ALERT_STALE_THRESHOLD = timedelta(days=30)
 
 
 @dataclass
@@ -471,7 +471,8 @@ class Beacon360Adapter(BaseAMIAdapter):
             )
 
             if capped_end_time := self._calculate_capped_alert_end_time(
-                start_time, end_time, exception.Exception
+                start_time,
+                end_time,
             ):
                 logger.info(
                     f"Capping stale open {exception.Exception} for {exception.Endpoint_SN} started {start_time}: setting end_time to {end_time}"
@@ -492,21 +493,20 @@ class Beacon360Adapter(BaseAMIAdapter):
         return result
 
     def _calculate_capped_alert_end_time(
-        self, start_time: datetime, end_time: datetime, alert_type: str
+        self, start_time: datetime, end_time: datetime
     ) -> datetime:
         """
-        For certain types of alerts that have been open for a long time, cap the end time to avoid having stale open alerts in our system.
-        This is particularly relevant for tamper alerts, which may be left open indefinitely in the Beacon 360 system
+        Cap meter alert end time to avoid having stale open alerts in our system.
+        Meter alerts may be left open indefinitely in the Beacon 360 system
         even if the underlying issue has been resolved.
         """
         if (
             end_time is None
-            and alert_type == "Endpoint Tamper"
             and start_time is not None
             and (datetime.now(tz=start_time.tzinfo) - start_time)
-            > STALE_OPEN_TAMPER_THRESHOLD
+            > METER_ALERT_STALE_THRESHOLD
         ):
-            return start_time + STALE_OPEN_TAMPER_THRESHOLD
+            return start_time + METER_ALERT_STALE_THRESHOLD
         return None
 
     def _cached_report_file(
