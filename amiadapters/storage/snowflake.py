@@ -764,7 +764,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                         -- Device's most recent read falls within the alert window
                         m.last_flowtime <= s.new_alert_end
                         -- Accounts for case where device's most recent read triggered the alert, then device stopped reporting
-                        AND m.last_flowtime >= DATEADD('day', -30, o.max_flowtime)
+                        AND m.last_flowtime >= DATEADD('day', -60, o.max_flowtime)
                     ) as IS_ACTIVE,
                     'high_daily_usage' as alert_type,
                     NULL::INTEGER AS matching_existing_alert_id,
