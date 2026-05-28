@@ -734,7 +734,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
             ),
             -- Now we group by the streak_group to get the start and end date of each streak of high usage.
             new_alerts AS (
-                SELECT 
+                SELECT
                     s.org_id,
                     s.device_id,
                     min(s.usage_date) AS new_alert_start,
@@ -743,17 +743,38 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 FROM streaks s
                 GROUP BY s.org_id, s.device_id, s.streak_group
             ),
-            -- Finally, determine if the alert is active by looking at the latest reading for the device and checking if it falls within the alert window.
+            -- Get the org-wide latest read across all devices to detect devices that have gone silent.
+            -- A device whose last read is significantly older than the org max is likely not reporting,
+            -- so we should close its alert rather than leaving it open indefinitely.
+            org_latest_read AS (
+                SELECT
+                    org_id,
+                    MAX(flowtime) AS max_flowtime
+                FROM {readings_table_name}
+                WHERE org_id = ?
+                AND interval_value IS NOT NULL
+                GROUP BY org_id
+            ),
+            -- Finally, determine if the alert is active by looking at the latest reading for the device and checking 
+            -- if it falls within the alert window. 
             new_alerts_with_status AS (
                 SELECT
                     s.*,
-                    (m.last_flowtime <= s.new_alert_end) as IS_ACTIVE,
+                    (
+                        -- Device's most recent read falls within the alert window
+                        m.last_flowtime <= s.new_alert_end
+                        -- Accounts for case where device's most recent read triggered the alert, then device stopped reporting
+                        AND (
+                            o.max_flowtime IS NULL
+                            OR m.last_flowtime >= DATEADD('day', -60, o.max_flowtime)
+                        )
+                    ) as IS_ACTIVE,
                     'high_daily_usage' as alert_type,
                     NULL::INTEGER AS matching_existing_alert_id,
                     ? as source
                 FROM new_alerts s
                 LEFT JOIN (
-                    SELECT 
+                    SELECT
                         ORG_ID,
                         DEVICE_ID,
                         FLOWTIME as last_flowtime,
@@ -764,10 +785,11 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                     WHERE interval_value is not null
                     -- This filters the results to only include the top 1 row per group, giving us the latest read
                     QUALIFY ROW_NUMBER() OVER (
-                        PARTITION BY ORG_ID, DEVICE_ID 
+                        PARTITION BY ORG_ID, DEVICE_ID
                         ORDER BY FLOWTIME DESC
                     ) = 1
                 ) m on s.org_id = m.org_id and s.device_id = m.device_id
+                LEFT JOIN org_latest_read o ON s.org_id = o.org_id
             )
             select * from new_alerts_with_status
             ;
@@ -779,6 +801,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 min_date,
                 max_date,
                 converted_daily_high_daily_usage_threshold,
+                org_id,
                 MeterAlertSource.CURRENT,
             ),
         )
