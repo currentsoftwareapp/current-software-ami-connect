@@ -305,8 +305,8 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
             "snowflake_storage_sink.store_transformed_alerts",
             tags={"org_id": self.org_id},
         ):
-            self._verify_no_duplicate_alerts(alerts)
             self._verify_alerts_have_required_fields(alerts)
+            self._verify_no_duplicate_alerts(alerts)
             conn = self.sink_config.connection()
             self._upsert_extracted_meter_alerts(alerts, conn)
             self.metrics.incr(
