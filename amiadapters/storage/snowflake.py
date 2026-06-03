@@ -306,6 +306,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
             tags={"org_id": self.org_id},
         ):
             self._verify_no_duplicate_alerts(alerts)
+            self._verify_alerts_have_required_fields(alerts)
             conn = self.sink_config.connection()
             self._upsert_extracted_meter_alerts(alerts, conn)
             self.metrics.incr(
@@ -1011,6 +1012,15 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                     f"Encountered duplicate alert in data for Snowflake: {key}"
                 )
             seen.add(key)
+
+    def _verify_alerts_have_required_fields(self, alerts: List[GeneralMeterAlert]):
+        for alert in alerts:
+            # Fields used to match incoming alerts during upsert must not be null, else we risk duplicates
+            for field in ("org_id", "device_id", "alert_type", "start_time", "source"):
+                if getattr(alert, field) is None:
+                    raise ValueError(
+                        f"Alert matching field '{field}' is None, which would cause upsert matching to silently fail: {alert}"
+                    )
 
     def calculate_end_of_backfill_range(
         self, org_id: str, min_date: datetime, max_date: datetime
