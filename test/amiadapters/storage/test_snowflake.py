@@ -8,7 +8,13 @@ import pytz
 from amiadapters.adapters.beacon import BEACON_RAW_SNOWFLAKE_LOADER
 from amiadapters.configuration.models import MeterAlertConfiguration
 from amiadapters.metrics.base import NOOP_METRICS
-from amiadapters.models import DataclassJSONEncoder, GeneralMeter, GeneralMeterRead
+from amiadapters.models import (
+    DataclassJSONEncoder,
+    GeneralMeter,
+    GeneralMeterAlert,
+    GeneralMeterRead,
+    MeterAlertSource,
+)
 from amiadapters.outputs.base import ExtractOutput
 from amiadapters.storage.snowflake import (
     SnowflakeStorageSink,
@@ -273,6 +279,66 @@ class TestSnowflakeStorageSink(BaseTestCase):
             self.extract_outputs,
         )
         self.assertEqual(0, self.mock_cursor.execute.call_count)
+
+    def _make_alert(self, **overrides):
+        fields = {
+            "org_id": "this-utility",
+            "device_id": "dev-1",
+            "alert_type": "Endpoint Tamper",
+            "start_time": datetime.datetime(2023, 2, 20, 13, 15, tzinfo=pytz.utc),
+            "end_time": None,
+            "source": MeterAlertSource.BEACON_360,
+        }
+        fields.update(overrides)
+        return GeneralMeterAlert(**fields)
+
+    def test_verify_no_duplicate_alerts_passes_for_unique_alerts(self):
+        alerts = [
+            self._make_alert(device_id="dev-1"),
+            self._make_alert(device_id="dev-2"),
+        ]
+        self.snowflake_sink._verify_no_duplicate_alerts(alerts)
+
+    def test_verify_no_duplicate_alerts_raises_on_duplicate(self):
+        alerts = [
+            self._make_alert(device_id="dev-1"),
+            self._make_alert(device_id="dev-1"),
+        ]
+        with self.assertRaises(ValueError):
+            self.snowflake_sink._verify_no_duplicate_alerts(alerts)
+
+    def test_verify_alerts_have_required_fields_passes_for_valid_alert(self):
+        self.snowflake_sink._verify_alerts_have_required_fields([self._make_alert()])
+
+    def test_verify_alerts_have_required_fields_raises_on_null_org_id(self):
+        with self.assertRaises(ValueError):
+            self.snowflake_sink._verify_alerts_have_required_fields(
+                [self._make_alert(org_id=None)]
+            )
+
+    def test_verify_alerts_have_required_fields_raises_on_null_device_id(self):
+        with self.assertRaises(ValueError):
+            self.snowflake_sink._verify_alerts_have_required_fields(
+                [self._make_alert(device_id=None)]
+            )
+
+    def test_verify_alerts_have_required_fields_raises_on_null_alert_type(self):
+        with self.assertRaises(ValueError):
+            self.snowflake_sink._verify_alerts_have_required_fields(
+                [self._make_alert(alert_type=None)]
+            )
+
+    def test_verify_alerts_have_required_fields_raises_on_null_start_time(self):
+        with self.assertRaises(ValueError):
+            self.snowflake_sink._verify_alerts_have_required_fields(
+                [self._make_alert(start_time=None)]
+            )
+
+    def test_verify_alerts_have_required_fields_raises_on_null_source(self):
+        with self.assertRaises(ValueError):
+            self.snowflake_sink._verify_alerts_have_required_fields(
+                [self._make_alert(source=None)]
+            )
 
     def test_verify_no_duplicate_reads_and_return_oldest_flowtime_finds_oldest_flowtime(
         self,
