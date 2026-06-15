@@ -165,10 +165,14 @@ Back on your laptop, run the `deploy.sh` script to start Airflow and your pipeli
 
 Now Airflow is running inside Docker on the server. You should see a response from Airflow if you run `curl localhost:8080` on the server.
 
-Inside the docker container, you can create an admin user with the following:
+> The database schema is migrated automatically on startup by the one-shot
+> `airflow-init` service (it runs both `airflow db migrate` and `airflow fab-db migrate`).
+
+Inside the docker container, you can create an admin user with the following (run it
+in the `airflow-apiserver` container):
 
 ```
-airflow users create   --username admin   --firstname Admin   --lastname User   --role Admin   --email <pick an email address>   --password <pick a password>
+docker exec -it airflow-apiserver airflow users create --username admin --firstname Admin --lastname User --role Admin --email <pick an email address> --password <pick a password>
 ```
 
 ### Create nginx reverse proxy

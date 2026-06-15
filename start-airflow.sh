@@ -2,6 +2,7 @@
 export PYTHONPATH=$(pwd)
 export AIRFLOW_HOME=$(pwd)
 source venv/bin/activate
-nohup airflow webserver &
+nohup airflow api-server &
 nohup airflow scheduler &
+nohup airflow dag-processor &
 

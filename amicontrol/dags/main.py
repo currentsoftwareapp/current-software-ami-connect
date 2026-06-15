@@ -6,7 +6,7 @@ SQL queries to get configuration.
 from datetime import datetime
 import logging
 
-from airflow.models.param import Param
+from airflow.sdk import Param
 
 from amiadapters.config import AMIAdapterConfiguration
 from amiadapters.configuration.env import set_global_aws_region

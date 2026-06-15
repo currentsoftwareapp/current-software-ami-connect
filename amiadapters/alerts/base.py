@@ -1,7 +1,6 @@
 import traceback
 
-from airflow.notifications.basenotifier import BaseNotifier
-from airflow.utils.context import Context
+from airflow.sdk import BaseNotifier, Context
 import boto3
 
 
