@@ -1,3 +1,4 @@
+# Shared configuration for all Airflow containers
 x-airflow-common: &airflow-common
   image: airflow:${AIRFLOW_IMAGE_TAG}
   env_file:
@@ -11,8 +12,6 @@ x-airflow-common: &airflow-common
     AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET}
     # LocalExecutor workers (inside the scheduler) reach the api-server by service name.
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://apiserver:8080/execution/
-    # Stable Fernet key so encrypted values are readable across all containers.
-    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
     PYTHONPATH: /opt/airflow:/opt/airflow/amicontrol
   volumes:
     - logs:/opt/airflow/logs

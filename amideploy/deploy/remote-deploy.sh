@@ -39,24 +39,14 @@ fi
 if [[ "${FULL_RESTART,,}" == "true" ]]; then
     echo "🚚 Setting up .env file"
     cd $BUILD_DIR
-
-    # Preserve previously-generated Airflow secrets across deploys so that
-    # Fernet-encrypted values stay readable and execution-API JWTs stay valid.
-    JWT_SECRET=""
-    FERNET_KEY=""
-    if [ -f .env ]; then
-        JWT_SECRET=$(grep -E '^AIRFLOW__API_AUTH__JWT_SECRET=' .env | cut -d'=' -f2- || true)
-        FERNET_KEY=$(grep -E '^AIRFLOW__CORE__FERNET_KEY=' .env | cut -d'=' -f2- || true)
-        rm .env
-    fi
-    [ -z "$JWT_SECRET" ] && JWT_SECRET=$(openssl rand -hex 32)
-    [ -z "$FERNET_KEY" ] && FERNET_KEY=$(openssl rand -base64 32 | tr '+/' '-_')
+    [ -f .env ] && rm .env
 
     echo "AIRFLOW_IMAGE_TAG=$VERSION" >> .env
     # The AMI_CONNECT__AIRFLOW_METASTORE_CONN and other variables are passed from the deploy script on your laptop
     echo "AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=$AMI_CONNECT__AIRFLOW_METASTORE_CONN" >> .env
-    echo "AIRFLOW__API_AUTH__JWT_SECRET=$JWT_SECRET" >> .env
-    echo "AIRFLOW__CORE__FERNET_KEY=$FERNET_KEY" >> .env
+    # Shared secret so the scheduler's workers can authenticate to the execution API.
+    # Regenerated each full restart, which is fine since all containers are recreated together.
+    echo "AIRFLOW__API_AUTH__JWT_SECRET=$(openssl rand -hex 32)" >> .env
     echo "AMI_CONNECT__AIRFLOW_SITE_URL=$AMI_CONNECT__AIRFLOW_SITE_URL" >> .env
     echo "AMI_CONNECT__UTILITY_BILLING_CONNECTION_URL=$AMI_CONNECT__UTILITY_BILLING_CONNECTION_URL" >> .env
 
