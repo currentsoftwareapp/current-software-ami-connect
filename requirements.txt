@@ -1,8 +1,8 @@
 certifi==2026.2.25
 charset-normalizer==3.4.6
-idna==3.15
+idna==3.11
 requests==2.33.0
-urllib3==2.7.0
+urllib3==2.6.3
 black==26.3.1
 PyYAML==6.0.3
 boto3==1.42.70
@@ -12,8 +12,11 @@ sshtunnel==0.4.0
 typer==0.24.1
 snowflake-sqlalchemy==1.9.0
 python-dotenv==1.2.2
-# Installs with constraints for Python 3.12
-apache-airflow==3.2.0 --constraint https://raw.githubusercontent.com/apache/airflow/constraints-3.2.0/constraints-3.12.txt
+# Installs with constraints for Python 3.12.
+# Keep --constraint on its own line so pip applies it globally; appended to a
+# package line it is silently ignored.
+--constraint https://raw.githubusercontent.com/apache/airflow/constraints-3.2.0/constraints-3.12.txt
+apache-airflow==3.2.0
 apache-airflow-providers-snowflake==6.11.0
 apache-airflow-providers-amazon==9.23.0
 apache-airflow-providers-fab==3.5.0
