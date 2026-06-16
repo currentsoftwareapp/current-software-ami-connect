@@ -40,9 +40,13 @@ if [[ "${FULL_RESTART,,}" == "true" ]]; then
     echo "🚚 Setting up .env file"
     cd $BUILD_DIR
     [ -f .env ] && rm .env
+
     echo "AIRFLOW_IMAGE_TAG=$VERSION" >> .env
     # The AMI_CONNECT__AIRFLOW_METASTORE_CONN and other variables are passed from the deploy script on your laptop
-    echo "AIRFLOW__CORE__SQL_ALCHEMY_CONN=$AMI_CONNECT__AIRFLOW_METASTORE_CONN" >> .env
+    echo "AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=$AMI_CONNECT__AIRFLOW_METASTORE_CONN" >> .env
+    # Shared secret so the scheduler's workers can authenticate to the execution API.
+    # Regenerated each full restart, which is fine since all containers are recreated together.
+    echo "AIRFLOW__API_AUTH__JWT_SECRET=$(openssl rand -hex 32)" >> .env
     echo "AMI_CONNECT__AIRFLOW_SITE_URL=$AMI_CONNECT__AIRFLOW_SITE_URL" >> .env
     echo "AMI_CONNECT__UTILITY_BILLING_CONNECTION_URL=$AMI_CONNECT__UTILITY_BILLING_CONNECTION_URL" >> .env
 

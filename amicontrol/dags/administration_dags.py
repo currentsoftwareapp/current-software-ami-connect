@@ -3,8 +3,7 @@ import logging
 import subprocess
 
 from airflow.configuration import conf
-from airflow.decorators import dag, task
-from airflow.notifications.basenotifier import BaseNotifier
+from airflow.sdk import BaseNotifier, dag, task
 
 logger = logging.getLogger(__name__)
 

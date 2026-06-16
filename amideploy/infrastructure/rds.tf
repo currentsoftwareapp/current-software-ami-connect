@@ -1,7 +1,7 @@
 resource "aws_db_instance" "ami_connect_airflow_metastore" {
   identifier                 = "ami-connect-airflow-db"
   engine                     = "postgres"
-  engine_version             = "16.8"
+  engine_version             = "16.13"
   instance_class             = "db.t4g.micro"
   allocated_storage          = 100
   storage_type               = "gp3"

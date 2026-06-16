@@ -145,7 +145,7 @@ Terraform output values can be found in `amideploy/configuration/current-output.
 
 ### Run Airflow application locally (rarely necessary)
 
-We use Apache Airflow to orchestrate our data pipeline. The Airflow code is in the `amicontrol` package.
+We use Apache Airflow (3.x) to orchestrate our data pipeline. The Airflow code is in the `amicontrol` package.
 
 With the dependencies from `requirements.txt` installed, you should be able to run Airflow locally. First,
 set the AIRFLOW_HOME variable and your PYTHONPATH:

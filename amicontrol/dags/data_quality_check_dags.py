@@ -1,8 +1,7 @@
 from datetime import datetime
 import logging
 
-from airflow.decorators import dag, task
-from airflow.notifications.basenotifier import BaseNotifier
+from airflow.sdk import BaseNotifier, dag, task
 
 from amiadapters.storage.base import BaseAMIDataQualityCheck
 

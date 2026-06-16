@@ -1,52 +1,64 @@
+# Shared configuration for all Airflow containers
+x-airflow-common: &airflow-common
+  image: airflow:${AIRFLOW_IMAGE_TAG}
+  env_file:
+    - .env
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+    AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+    AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/amicontrol/dags
+    # Shared secret so the scheduler's workers can authenticate to the execution API.
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET}
+    # LocalExecutor workers (inside the scheduler) reach the api-server by service name.
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://apiserver:8080/execution/
+    PYTHONPATH: /opt/airflow:/opt/airflow/amicontrol
+  volumes:
+    - logs:/opt/airflow/logs
+    - ./repo/amicontrol/dags:/opt/airflow/amicontrol/dags:ro
+    - ./repo/amiadapters:/opt/airflow/amiadapters:ro
+    - ./neptune:/opt/airflow/neptune:ro
+  networks:
+    - airflow
+
 services:
 
+  # One-shot: migrate the metadata DB schema before anything else starts.
+  # FAB keeps its own tables (auth/users), migrated separately from core.
+  airflow-init:
+    <<: *airflow-common
+    container_name: airflow-init
+    command: bash -c "airflow db migrate && airflow fab-db migrate"
+    restart: on-failure
+
   scheduler:
-    image: airflow:${AIRFLOW_IMAGE_TAG}
+    <<: *airflow-common
     container_name: airflow-scheduler
     command: scheduler
     restart: unless-stopped
-    env_file:
-      - .env
-    networks:
-      - airflow
-    environment:
-      AIRFLOW__WEBSERVER__AUTHENTICATE: True
-      AIRFLOW__WEBSERVER__AUTH_BACKEND: airflow.www.security.auth_backend.password_auth
-      AIRFLOW__WEBSERVER__WARN_DEPLOYMENT_EXPOSURE: False
-      AIRFLOW__CORE__LOAD_EXAMPLES: False
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/amicontrol/dags
-      PYTHONPATH: /opt/airflow:/opt/airflow/amicontrol
-    volumes:
-      - logs:/opt/airflow/logs
-      - ./repo/amicontrol/dags:/opt/airflow/amicontrol/dags:ro
-      - ./repo/amiadapters:/opt/airflow/amiadapters:ro
-      - ./neptune:/opt/airflow/neptune:ro
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
 
-  webserver:
-    image: airflow:${AIRFLOW_IMAGE_TAG}
-    container_name: airflow-webserver
-    command: webserver
+  dag-processor:
+    <<: *airflow-common
+    container_name: airflow-dag-processor
+    command: dag-processor
     restart: unless-stopped
-    env_file:
-      - .env
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  apiserver:
+    <<: *airflow-common
+    container_name: airflow-apiserver
+    command: api-server
+    restart: unless-stopped
     ports:
       - 8080:8080
-    networks:
-      - airflow
-    environment:
-      AIRFLOW__WEBSERVER__AUTHENTICATE: True
-      AIRFLOW__WEBSERVER__AUTH_BACKEND: airflow.www.security.auth_backend.password_auth
-      AIRFLOW__WEBSERVER__WARN_DEPLOYMENT_EXPOSURE: False
-      AIRFLOW__CORE__LOAD_EXAMPLES: False
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/amicontrol/dags
-      PYTHONPATH: /opt/airflow:/opt/airflow/amicontrol
-    volumes:
-      - logs:/opt/airflow/logs
-      - ./repo/amicontrol/dags:/opt/airflow/amicontrol/dags:ro
-      - ./repo/amiadapters:/opt/airflow/amiadapters:ro
-      - ./neptune:/opt/airflow/neptune:ro
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
 
 networks:
   airflow:
