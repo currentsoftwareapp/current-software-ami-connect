@@ -279,6 +279,12 @@ class SubecaSecrets(SourceSecretsBase):
 
 
 @dataclass
+class ZennerSecrets(SourceSecretsBase):
+    username: str
+    password: str
+
+
+@dataclass
 class XylemMoultonNiguelSecrets(SourceSecretsBase):
     ssh_tunnel_private_key: str
     ssh_tunnel_username: str
@@ -605,6 +611,17 @@ class SubecaSourceConfig(SourceConfigBase):
 
 
 @dataclass(frozen=True)
+class ZennerSourceConfig(SourceConfigBase):
+    # StealthAMI utility identifier sent in the `utility` header,
+    # e.g. "zennerapi.valencia_heights_ca.2017".
+    utility: str
+
+    def validate(self):
+        super().validate()
+        self._require("utility")
+
+
+@dataclass(frozen=True)
 class XylemSensusSourceConfig(SourceConfigBase):
     sftp_host: str
     sftp_remote_data_directory: str
@@ -672,6 +689,12 @@ class ConfiguredAMISourceTypes(Enum):
         "subeca",
         SubecaSourceConfig,
         SubecaSecrets,
+        [ConfiguredStorageSinkType.SNOWFLAKE],
+    )
+    ZENNER = SourceSchema(
+        "zenner",
+        ZennerSourceConfig,
+        ZennerSecrets,
         [ConfiguredStorageSinkType.SNOWFLAKE],
     )
     XYLEM_MOULTON_NIGUEL = SourceSchema(
