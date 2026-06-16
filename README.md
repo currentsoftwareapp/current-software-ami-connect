@@ -52,7 +52,7 @@ You may need to install `rust` to get airflow to install. Follow instructions in
 Airflow is installed against a constraints file that pins its entire dependency tree
 to a tested, reproducible set. We use a **local fork** of Apache's official
 constraints (`constraints-3.X.X.txt`) rather than the upstream URL, because we need a
-small number of deviations — e.g. `urllib3` is bumped to a version tht includes a
+small number of deviations — e.g. `urllib3` is bumped to a version that includes a
 security fix that the official Airflow constraints lacks.
 
 Notes:
