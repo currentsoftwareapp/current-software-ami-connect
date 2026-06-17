@@ -155,6 +155,10 @@ class ZennerAdapter(BaseAMIAdapter):
     # The API never populates a meter's unit of measure, so we default to cubic feet.
     DEFAULT_UNIT_OF_MEASURE = "CF"
 
+    # Seconds to wait on an API request before giving up, so an unresponsive server
+    # cannot hang the pipeline indefinitely.
+    REQUEST_TIMEOUT_SECONDS = 30
+
     def __init__(
         self,
         org_id: str,
@@ -208,7 +212,12 @@ class ZennerAdapter(BaseAMIAdapter):
         All endpoints we use return a top-level JSON array.
         """
         url = f"{BASE_URL}{path}"
-        response = requests.get(url, headers=self._headers(), params=params)
+        response = requests.get(
+            url,
+            headers=self._headers(),
+            params=params,
+            timeout=self.REQUEST_TIMEOUT_SECONDS,
+        )
         if response.status_code != 200:
             raise Exception(
                 f"Non-200 response from {path}: {response.status_code} {response.text}"
@@ -296,7 +305,11 @@ class ZennerAdapter(BaseAMIAdapter):
             address = a.get("address") or {}
             accounts.append(
                 ZennerAccount(
-                    account_id=str(a.get("account_ID")),
+                    account_id=(
+                        str(a.get("account_ID"))
+                        if a.get("account_ID") is not None
+                        else None
+                    ),
                     name=a.get("name"),
                     address=address.get("address"),
                     city=address.get("city"),
@@ -315,7 +328,11 @@ class ZennerAdapter(BaseAMIAdapter):
         raw = self._get("/api/Nodes/GetAllNodes")
         nodes = [
             ZennerNode(
-                serial_number=str(n.get("serialNumber")),
+                serial_number=(
+                    str(n.get("serialNumber"))
+                    if n.get("serialNumber") is not None
+                    else None
+                ),
                 miu_type=n.get("miU_Type"),
                 miu_subtype=n.get("miU_SubType"),
                 register_type=n.get("regType"),
@@ -342,8 +359,8 @@ class ZennerAdapter(BaseAMIAdapter):
         offset = 0
         while True:
             params = {
-                "StartDateTime": extract_range_start.date().isoformat(),
-                "EndDateTime": extract_range_end.date().isoformat(),
+                "StartDateTime": extract_range_start.isoformat(),
+                "EndDateTime": extract_range_end.isoformat(),
                 "NumRecords": self.READS_PAGE_SIZE,
                 "StartReadingID": offset,
             }
@@ -421,15 +438,18 @@ class ZennerAdapter(BaseAMIAdapter):
         raw_accounts: List[ZennerAccount],
         raw_reads: List[ZennerReading],
     ) -> Tuple[List[GeneralMeter], List[GeneralMeterRead]]:
-        # Only water accounts are relevant to this pipeline.
+        # Only water accounts with an account_id are relevant to this pipeline.
         accounts_by_id = {
-            a.account_id: a for a in raw_accounts if a.utility_type == "Water"
+            a.account_id: a
+            for a in raw_accounts
+            if a.utility_type == "Water" and a.account_id is not None
         }
         account_meter_by_meter_id = self._account_meter_by_meter_id(raw_account_meters)
         # The API never provides a unit of measure, so fall back to the default.
         unit_by_meter_id = {
             str(m.meter_id): m.unit_of_measure or self.DEFAULT_UNIT_OF_MEASURE
             for m in raw_meters
+            if m.meter_id is not None
         }
 
         meters_by_id = {}
@@ -511,21 +531,41 @@ class ZennerAdapter(BaseAMIAdapter):
         self, account_meters: List[ZennerAccountMeter]
     ) -> Dict[str, ZennerAccountMeter]:
         """
-        Index account meters by meter ID. We assume each meter has exactly one account
-        meter association; validate that and raise if it is ever violated, since a
-        duplicate would mean we'd silently pick an arbitrary association.
+        Index account meters by meter ID. A meter can appear in multiple associations
+        (e.g. re-linked over time); when that happens we keep the one with the oldest
+        link date.
         """
         result: Dict[str, ZennerAccountMeter] = {}
         for am in account_meters:
-            meter_id = str(am.meter_id)
-            if meter_id in result:
-                raise ValueError(
-                    f"Expected account meters to be unique by meter_id, but found "
-                    f"multiple associations for meter_id={meter_id} "
-                    f"({result[meter_id].unique_key} and {am.unique_key})"
+            if am.meter_id is None:
+                logger.warning(
+                    f"Skipping account meter with no meter_id for {self.org_id}: {am}"
                 )
-            result[meter_id] = am
+                continue
+            meter_id = str(am.meter_id)
+            existing = result.get(meter_id)
+            if existing is None or self._has_older_link_date(am, existing):
+                result[meter_id] = am
         return result
+
+    def _has_older_link_date(
+        self, candidate: ZennerAccountMeter, existing: ZennerAccountMeter
+    ) -> bool:
+        """
+        True if candidate has an earlier link date than existing. A missing link date is
+        treated as "not older", so an entry with a real date is preferred over one without.
+        """
+        candidate_link = self.datetime_from_iso_str(
+            candidate.link_date, self.org_timezone
+        )
+        existing_link = self.datetime_from_iso_str(
+            existing.link_date, self.org_timezone
+        )
+        if candidate_link is None:
+            return False
+        if existing_link is None:
+            return True
+        return candidate_link < existing_link
 
     @staticmethod
     def _parse_multiplier(multiplier_rule_display: Optional[str]) -> Optional[float]:
@@ -556,9 +596,7 @@ class ZennerRawMetersLoader(RawSnowflakeTableLoader):
 
     def prepare_raw_data(self, extract_outputs):
         raw_data = extract_outputs.load_from_file("meters.json", ZennerMeter)
-        return [
-            tuple(i.__getattribute__(name) for name in self.columns()) for i in raw_data
-        ]
+        return [tuple(getattr(i, name) for name in self.columns()) for i in raw_data]
 
 
 class ZennerRawAccountMetersLoader(RawSnowflakeTableLoader):
@@ -576,9 +614,7 @@ class ZennerRawAccountMetersLoader(RawSnowflakeTableLoader):
         raw_data = extract_outputs.load_from_file(
             "account_meters.json", ZennerAccountMeter
         )
-        return [
-            tuple(i.__getattribute__(name) for name in self.columns()) for i in raw_data
-        ]
+        return [tuple(getattr(i, name) for name in self.columns()) for i in raw_data]
 
 
 class ZennerRawAccountsLoader(RawSnowflakeTableLoader):
@@ -594,9 +630,7 @@ class ZennerRawAccountsLoader(RawSnowflakeTableLoader):
 
     def prepare_raw_data(self, extract_outputs):
         raw_data = extract_outputs.load_from_file("accounts.json", ZennerAccount)
-        return [
-            tuple(i.__getattribute__(name) for name in self.columns()) for i in raw_data
-        ]
+        return [tuple(getattr(i, name) for name in self.columns()) for i in raw_data]
 
 
 class ZennerRawNodesLoader(RawSnowflakeTableLoader):
@@ -612,9 +646,7 @@ class ZennerRawNodesLoader(RawSnowflakeTableLoader):
 
     def prepare_raw_data(self, extract_outputs):
         raw_data = extract_outputs.load_from_file("nodes.json", ZennerNode)
-        return [
-            tuple(i.__getattribute__(name) for name in self.columns()) for i in raw_data
-        ]
+        return [tuple(getattr(i, name) for name in self.columns()) for i in raw_data]
 
 
 class ZennerRawReadsLoader(RawSnowflakeTableLoader):
@@ -630,6 +662,4 @@ class ZennerRawReadsLoader(RawSnowflakeTableLoader):
 
     def prepare_raw_data(self, extract_outputs):
         raw_data = extract_outputs.load_from_file("reads.json", ZennerReading)
-        return [
-            tuple(i.__getattribute__(name) for name in self.columns()) for i in raw_data
-        ]
+        return [tuple(getattr(i, name) for name in self.columns()) for i in raw_data]

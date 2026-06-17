@@ -146,6 +146,7 @@ class TestZennerAdapter(BaseTestCase):
             "https://api.stealthami.com/api/Meters/GetAllMeters",
             headers=self.adapter._headers(),
             params=None,
+            timeout=self.adapter.REQUEST_TIMEOUT_SECONDS,
         )
 
     @mock.patch("requests.get", side_effect=[mocked_get_all_account_meters()])
@@ -219,8 +220,8 @@ class TestZennerAdapter(BaseTestCase):
         first_call = mock_get.call_args_list[0]
         self.assertEqual(
             {
-                "StartDateTime": "2026-01-25",
-                "EndDateTime": "2026-01-26",
+                "StartDateTime": "2026-01-25T00:00:00",
+                "EndDateTime": "2026-01-26T00:00:00",
                 "NumRecords": 1,
                 "StartReadingID": 0,
             },
@@ -427,12 +428,12 @@ class TestZennerAdapter(BaseTestCase):
         self.assertEqual("CA", meter.location_state)
         self.assertEqual("91791", meter.location_zip)
 
-    def test_transform_raises_on_duplicate_account_meter_meter_id(self):
-        # We assume account meters are unique by meter_id; if that assumption breaks the
-        # transform must fail loudly rather than silently pick an arbitrary association.
+    def test_transform_picks_oldest_link_date_for_duplicate_account_meter(self):
+        # A meter can have multiple account meter associations (re-linked over time). We
+        # keep the one with the oldest link date.
         meters = [
             ZennerMeter(
-                meter_id="1001",
+                meter_id="230202",
                 meter_type="W",
                 flow_capacity=None,
                 inlet_outlet=None,
@@ -445,25 +446,34 @@ class TestZennerAdapter(BaseTestCase):
         ]
         account_meters = [
             ZennerAccountMeter(
-                account_id="5",
-                meter_id="1001",
-                node_id="90",
-                link_date="2018-08-16T14:06:00",
-                expire_date="2019-01-01T00:00:00",
-                unique_key="5-1001-90",
+                account_id="3-01284-00",
+                meter_id="230202",
+                node_id="2078051",
+                link_date="2015-11-04T13:02:40",
+                expire_date="2000-01-01T00:00:00",
+                unique_key="3-01284-00-230202-2078051",
             ),
             ZennerAccountMeter(
-                account_id="6",
-                meter_id="1001",
-                node_id="91",
-                link_date="2020-01-01T00:00:00",
-                expire_date=None,
-                unique_key="6-1001-91",
+                account_id="3-01284-00",
+                meter_id="230202",
+                node_id="9999999",
+                link_date="2014-10-06T00:00:00",
+                expire_date="2000-01-01T00:00:00",
+                unique_key="3-01284-00-230202-2078051",
             ),
         ]
 
-        with self.assertRaises(ValueError):
-            self.adapter._transform_meters_and_reads(meters, account_meters, [], [])
+        transformed_meters, _ = self.adapter._transform_meters_and_reads(
+            meters, account_meters, [], []
+        )
+
+        # The association with the oldest link date (2014-10-06) wins.
+        self.assertEqual(1, len(transformed_meters))
+        self.assertEqual("9999999", transformed_meters[0].endpoint_id)
+        self.assertEqual(
+            self.adapter.org_timezone.localize(datetime.datetime(2014, 10, 6, 0, 0)),
+            transformed_meters[0].meter_install_date,
+        )
 
     def test_transform_skips_meter_missing_meter_id(self):
         meters = [
