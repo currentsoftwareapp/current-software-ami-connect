@@ -285,6 +285,49 @@ class TestFromDatabase(BaseTestCase):
     @patch("amiadapters.config.create_snowflake_from_secrets")
     @patch("amiadapters.config.create_utility_billing_settings_connection_from_env")
     @patch("amiadapters.config.get_configuration")
+    def test_from_database__skips_unrecognized_source_type(
+        self,
+        mock_get_configuration,
+        mock_utility_billing_conn,
+        mock_create_snowflake,
+        mock_get_secrets,
+    ):
+        """
+        A source type that exists in the database but isn't recognized by this
+        version of the code (e.g. added in a separate PR before deploy) should
+        be skipped rather than breaking parsing for every other source.
+        """
+        mock_get_secrets.return_value = self.FAKE_SECRETS
+        mock_create_snowflake.return_value = MagicMock()
+        mock_utility_billing_conn.return_value = None
+        sources = [
+            {
+                "type": "some_unrecognized_type",
+                "org_id": "current_unknown",
+                "timezone": "America/Los_Angeles",
+                "sinks": ["my_snowflake_instance"],
+                "meter_alerts": {},
+            },
+            *self.FAKE_SOURCES,
+        ]
+        mock_get_configuration.return_value = (
+            sources,
+            self.FAKE_SINKS,
+            self.FAKE_PIPELINE_CONFIGURATION,
+            {},
+            [],
+        )
+
+        config = AMIAdapterConfiguration.from_database()
+
+        self.assertEqual(1, len(config._sources))
+        self.assertEqual("current_bakman", config._sources[0].org_id)
+        self.assertEqual("sentryx", config._sources[0].type)
+
+    @patch("amiadapters.config.get_secrets")
+    @patch("amiadapters.config.create_snowflake_from_secrets")
+    @patch("amiadapters.config.create_utility_billing_settings_connection_from_env")
+    @patch("amiadapters.config.get_configuration")
     def test_from_database__without_utility_billing_connection(
         self,
         mock_get_configuration,
