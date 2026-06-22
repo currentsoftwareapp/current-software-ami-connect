@@ -42,7 +42,6 @@ from amiadapters.configuration.env import (
 from amiadapters.configuration.models import ConfiguredAMISourceTypes
 from amiadapters.configuration.secrets import get_secrets
 
-
 logger = logging.getLogger(__name__)
 
 
