@@ -47,6 +47,21 @@ pip install -r requirements.txt
 
 You may need to install `rust` to get airflow to install. Follow instructions in the rust error message.
 
+#### Dependency constraints
+
+Airflow is installed against a constraints file that pins its entire dependency tree
+to a tested, reproducible set. We use a **local fork** of Apache's official
+constraints (`constraints-3.X.X.txt`) rather than the upstream URL, because we need a
+small number of deviations — e.g. `urllib3` is bumped to a version that includes a
+security fix that the official Airflow constraints lacks.
+
+Notes:
+- The `--constraint` line in `requirements.txt` must stay on its own line, else pip ignores it.
+- The deviations from upstream are documented in the header of
+  `constraints-3.X.X.txt`. To refresh on the next Airflow version bump, re-download
+  the upstream constraints file (e.g. `curl -sSL https://raw.githubusercontent.com/apache/airflow/constraints-3.2.0/constraints-3.12.txt -o constraints-3.2.0.txt`) for the new version and re-apply (or drop, if
+  upstream has caught up) those edits.
+
 ### Formatting
 
 We use `black` to format Python files. Before making a commit, format files with:
