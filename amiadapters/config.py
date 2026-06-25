@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import List, Dict
+import logging
 import pathlib
 
 from pytz import UTC
@@ -41,6 +42,8 @@ from amiadapters.configuration.env import (
 )
 from amiadapters.configuration.models import ConfiguredAMISourceTypes
 from amiadapters.configuration.secrets import get_secrets
+
+logger = logging.getLogger(__name__)
 
 
 class AMIAdapterConfiguration:
@@ -186,6 +189,20 @@ class AMIAdapterConfiguration:
         for source in configured_sources:
             org_id = source.get("org_id")
             source_type = source.get("type")
+
+            # Skip source types that aren't recognized by this version of the
+            # code. A new source type may exist in the production database
+            # before the code that handles it has been deployed (e.g. when the
+            # source is added in a separate PR). Skipping rather than raising
+            # keeps an unknown source from breaking DAG parsing for every other
+            # source.
+            if not ConfiguredAMISourceTypes.is_valid_type(source_type):
+                logger.warning(
+                    f"Skipping source {org_id} with unrecognized type "
+                    f"'{source_type}'. This version of the code does not know "
+                    f"how to handle it."
+                )
+                continue
 
             # Parse secrets for data source
             this_source_secrets = configured_secrets.get("sources", {}).get(org_id)
