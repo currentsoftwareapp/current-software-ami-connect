@@ -13,6 +13,7 @@ from amiadapters.adapters.sentryx import SentryxAdapter
 from amiadapters.adapters.subeca import SubecaAdapter
 from amiadapters.adapters.xylem_moulton_niguel import XylemMoultonNiguelAdapter
 from amiadapters.adapters.xylem_sensus import XylemSensusAdapter
+from amiadapters.adapters.zenner import ZennerAdapter
 from amiadapters.alerts.base import AmiConnectDagFailureNotifier
 from amiadapters.configuration.base import (
     create_snowflake_from_secrets,
@@ -385,6 +386,21 @@ class AMIAdapterConfiguration:
                             self._pipeline_configuration,
                             source.api_url,
                             source.secrets.api_key,
+                            source.task_output_controller,
+                            source.meter_alerts,
+                            source.metrics,
+                            source.sinks,
+                        )
+                    )
+                case ConfiguredAMISourceTypes.ZENNER.value.type:
+                    adapters.append(
+                        ZennerAdapter(
+                            source.org_id,
+                            source.timezone,
+                            self._pipeline_configuration,
+                            source.utility,
+                            source.secrets.username,
+                            source.secrets.password,
                             source.task_output_controller,
                             source.meter_alerts,
                             source.metrics,
