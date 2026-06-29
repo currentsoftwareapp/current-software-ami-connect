@@ -1058,25 +1058,6 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
         """
         conn = self.sink_config.connection()
 
-        # Temporary hack for Thousand Oaks backfill, remove after finished
-        if org_id == "cadc_thousand_oaks":
-            earliest = (
-                conn.cursor()
-                .execute(
-                    "select earliest from backfills where org_id = 'cadc_thousand_oaks'"
-                )
-                .fetchall()[0][0]
-            )
-            logger.info(f"Earliest end date of backfill for {org_id} is {earliest}")
-            from datetime import timedelta
-
-            next_end = earliest - timedelta(days=1)
-            conn.cursor().execute(
-                f"update backfills set earliest = '{next_end}' where org_id = 'cadc_thousand_oaks'"
-            ).fetchall()[0][0]
-            logger.info(f"Set earliest to {next_end.isoformat()}")
-            return earliest
-
         # Calculate nth percentile of number of readings per day
         # We will use that as a threshold for what we consider "already backfilled"
         percentile_query = """
@@ -1091,7 +1072,13 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
             percentile_query, (org_id, min_date, max_date)
         )
         percentile_rows = [i for i in percentile_result]
-        if len(percentile_rows) != 1:
+        # The percentile is None when there are no readings in the range (no rows
+        # to take a percentile of), in which case there's nothing already backfilled.
+        if len(percentile_rows) != 1 or percentile_rows[0][0] is None:
+            logger.info(
+                f"No readings found for {org_id} between {min_date} and {max_date}; "
+                "treating backfill threshold as 0"
+            )
             threshold = 0
         else:
             threshold = float(percentile_rows[0][0])
