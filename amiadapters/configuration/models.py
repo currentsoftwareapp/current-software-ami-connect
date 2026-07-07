@@ -76,9 +76,9 @@ class MeterAlertConfiguration:
     daily_high_usage_unit: str
     # Per-account high daily usage thresholds, keyed by the device_id they apply to.
     # Empty when no account has configured a threshold.
-    account_level_daily_high_usage_thresholds: Dict[
-        str, AccountHighUsageThreshold
-    ] = field(default_factory=dict)
+    account_level_daily_high_usage_thresholds: Dict[str, AccountHighUsageThreshold] = (
+        field(default_factory=dict)
+    )
 
 
 @dataclass

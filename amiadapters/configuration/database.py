@@ -31,11 +31,15 @@ def get_configuration(snowflake_connection, utility_billing_connection_url) -> T
     ub_org_usage_thresholds = []
     ub_account_usage_thresholds = []
     if utility_billing_connection_url:
-        ub_org_usage_thresholds = _get_utility_billing_org_wide_usage_threshold_from_postgres(
-            utility_billing_connection_url
+        ub_org_usage_thresholds = (
+            _get_utility_billing_org_wide_usage_threshold_from_postgres(
+                utility_billing_connection_url
+            )
         )
-        ub_account_usage_thresholds = _get_utility_billing_account_thresholds_from_postgres(
-            utility_billing_connection_url
+        ub_account_usage_thresholds = (
+            _get_utility_billing_account_thresholds_from_postgres(
+                utility_billing_connection_url
+            )
         )
 
     sources = _merge_snowflake_and_utility_billing_settings(
@@ -165,7 +169,9 @@ def _get_utility_billing_account_thresholds_from_postgres(
 
 
 def _merge_snowflake_and_utility_billing_settings(
-    snowflake_sources, utility_billing_org_thresholds, utility_billing_account_thresholds=None
+    snowflake_sources,
+    utility_billing_org_thresholds,
+    utility_billing_account_thresholds=None,
 ):
     """
     Merge Utility Billing app's settings from Postgresql with the sources from Snowflake.
@@ -176,7 +182,9 @@ def _merge_snowflake_and_utility_billing_settings(
         source["meter_alerts"] = {}
         # Find matching configuration from utility billing settings, matching on snowflake_id = org_id
         if matching := [
-            i for i in utility_billing_org_thresholds if i["snowflakeid"] == source["org_id"]
+            i
+            for i in utility_billing_org_thresholds
+            if i["snowflakeid"] == source["org_id"]
         ]:
             if len(matching) != 1:
                 raise ValueError(
