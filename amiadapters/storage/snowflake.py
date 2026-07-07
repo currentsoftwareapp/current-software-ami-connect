@@ -904,15 +904,13 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
 
         # Stage the per-device thresholds so we can join them to daily usage in SQL.
         threshold_stage_table = "stage_contact_person_high_usage_thresholds"
-        conn.cursor().execute(
-            f"""
+        conn.cursor().execute(f"""
             CREATE OR REPLACE TEMPORARY TABLE {threshold_stage_table} (
                 ORG_ID VARCHAR(16777216) NOT NULL,
                 DEVICE_ID VARCHAR(16777216) NOT NULL,
                 THRESHOLD_CF FLOAT NOT NULL,
                 unique (ORG_ID, DEVICE_ID)
-            );"""
-        )
+            );""")
         conn.cursor().executemany(
             f"INSERT INTO {threshold_stage_table} (org_id, device_id, threshold_cf) VALUES (?, ?, ?)",
             [

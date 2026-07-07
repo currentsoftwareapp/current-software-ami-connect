@@ -745,7 +745,6 @@ class TestSnowflakeHighDailyUsageForContactPersonAlerts(
         self._assert_num_rows(self.test_meter_alerts_table, 0)
 
 
-
 class TestSnowflakeContinuousFlowAlerts(BaseSnowflakeIntegrationTestCase):
 
     def setUp(self):

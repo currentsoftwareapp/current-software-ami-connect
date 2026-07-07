@@ -219,9 +219,9 @@ def _merge_snowflake_and_utility_billing_settings(
             and t.get("unit")
         ]
         if contact_person_thresholds:
-            source["meter_alerts"]["high_daily_usage_for_contact_person_thresholds"] = (
-                contact_person_thresholds
-            )
+            source["meter_alerts"][
+                "high_daily_usage_for_contact_person_thresholds"
+            ] = contact_person_thresholds
     return snowflake_sources
 
 
