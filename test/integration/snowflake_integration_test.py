@@ -621,7 +621,7 @@ class TestSnowflakeHighDailyUsageForContactPersonAlerts(
             {device_id: AccountHighUsageThreshold(threshold=500, unit="CF")}
         )
 
-        self.snowflake_sink._upsert_high_daily_usage_for_contact_person_alerts(
+        self.snowflake_sink._upsert_account_level_daily_usage_threshold_alerts(
             self.conn,
             start_streak - datetime.timedelta(days=1),
             self.now,
@@ -656,7 +656,7 @@ class TestSnowflakeHighDailyUsageForContactPersonAlerts(
             {device_with_threshold: AccountHighUsageThreshold(threshold=500, unit="CF")}
         )
 
-        self.snowflake_sink._upsert_high_daily_usage_for_contact_person_alerts(
+        self.snowflake_sink._upsert_account_level_daily_usage_threshold_alerts(
             self.conn,
             start_streak - datetime.timedelta(days=1),
             self.now,
@@ -688,7 +688,7 @@ class TestSnowflakeHighDailyUsageForContactPersonAlerts(
             }
         )
 
-        self.snowflake_sink._upsert_high_daily_usage_for_contact_person_alerts(
+        self.snowflake_sink._upsert_account_level_daily_usage_threshold_alerts(
             self.conn,
             start_streak - datetime.timedelta(days=1),
             self.now,
@@ -714,7 +714,7 @@ class TestSnowflakeHighDailyUsageForContactPersonAlerts(
             {device_id: AccountHighUsageThreshold(threshold=30, unit="CCF")}
         )
 
-        self.snowflake_sink._upsert_high_daily_usage_for_contact_person_alerts(
+        self.snowflake_sink._upsert_account_level_daily_usage_threshold_alerts(
             self.conn,
             start_streak - datetime.timedelta(days=1),
             self.now,
@@ -733,7 +733,7 @@ class TestSnowflakeHighDailyUsageForContactPersonAlerts(
 
         self._set_thresholds({})
 
-        self.snowflake_sink._upsert_high_daily_usage_for_contact_person_alerts(
+        self.snowflake_sink._upsert_account_level_daily_usage_threshold_alerts(
             self.conn,
             start_streak - datetime.timedelta(days=1),
             self.now,
