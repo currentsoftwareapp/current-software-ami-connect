@@ -607,7 +607,7 @@ class TestSnowflakeHighDailyUsageForContactPersonAlerts(
         self.snowflake_sink.meter_alerts = MeterAlertConfiguration(
             daily_high_usage_threshold=None,
             daily_high_usage_unit=None,
-            high_daily_usage_for_contact_person_thresholds=thresholds,
+            account_level_daily_high_usage_thresholds=thresholds,
         )
 
     def test_alert_triggers_for_device_over_its_contact_person_threshold(self):

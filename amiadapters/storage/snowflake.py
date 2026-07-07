@@ -445,7 +445,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
             self._upsert_daily_usage_threshold_alerts(
                 conn, min_date, max_date, self.org_id
             )
-            self._upsert_high_daily_usage_for_contact_person_alerts(
+            self._upsert_account_level_daily_usage_threshold_alerts(
                 conn, min_date, max_date, self.org_id
             )
 
@@ -637,6 +637,45 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
             f"Detected {num_alerts_detected} continuous flow alerts in staging table for org_id {org_id}. Merging into {meter_alerts_table_name} table."
         )
 
+    def _readings_stored_in_cf(
+        self, conn, org_id: str, readings_table_name=READINGS_TABLE_NAME
+    ) -> bool:
+        """
+        Return True if this org has readings and they are all stored in CF.
+
+        All adapters normalize interval values to CF via map_reading before storing, so high
+        daily usage detection (which compares against thresholds converted to CF) should only
+        proceed when CF is the only unit present. Logs and returns False when there are no
+        readings or an unexpected non-CF unit is found.
+        """
+        distinct_units = [
+            row[0]
+            for row in conn.cursor()
+            .execute(
+                f"SELECT DISTINCT interval_unit FROM {readings_table_name} WHERE org_id = ? AND interval_unit IS NOT NULL",
+                (org_id,),
+            )
+            .fetchall()
+        ]
+        if not distinct_units:
+            logger.info(
+                f"No readings found for org_id {org_id}, skipping high daily usage alert detection."
+            )
+            return False
+
+        non_cf_units = [
+            u for u in distinct_units if u != GeneralMeterUnitOfMeasure.CUBIC_FEET
+        ]
+        if non_cf_units:
+            logger.warning(
+                f"Expected all interval readings for org_id {org_id} to be stored in CF, "
+                f"but found unexpected unit(s): {non_cf_units}. "
+                f"Skipping high daily usage alert detection."
+            )
+            return False
+
+        return True
+
     def _upsert_daily_usage_threshold_alerts(
         self,
         conn,
@@ -658,34 +697,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
             )
             return
 
-        # Determine the distinct unit(s) readings are stored in for this org.
-        # All adapters normalize interval values to CF via map_reading before storing,
-        # so we assert CF is the only unit present before converting the configured threshold.
-        distinct_units = [
-            row[0]
-            for row in conn.cursor()
-            .execute(
-                f"SELECT DISTINCT interval_unit FROM {readings_table_name} WHERE org_id = ? AND interval_unit IS NOT NULL",
-                (org_id,),
-            )
-            .fetchall()
-        ]
-        if not distinct_units:
-            logger.info(
-                f"No readings found for org_id {org_id}, skipping daily usage threshold alert detection."
-            )
-            return
-
-        # We assume all interval reads are stored in CF, which is the policy in our transform step
-        non_cf_units = [
-            u for u in distinct_units if u != GeneralMeterUnitOfMeasure.CUBIC_FEET
-        ]
-        if non_cf_units:
-            logger.warning(
-                f"Expected all interval readings for org_id {org_id} to be stored in CF, "
-                f"but found unexpected unit(s): {non_cf_units}. "
-                f"Skipping daily usage threshold alert detection."
-            )
+        if not self._readings_stored_in_cf(conn, org_id, readings_table_name):
             return
 
         # Convert the configured threshold from its configured unit to CF.
@@ -824,7 +836,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
             "stage_daily_usage_thresholds",
         )
 
-    def _upsert_high_daily_usage_for_contact_person_alerts(
+    def _upsert_account_level_daily_usage_threshold_alerts(
         self,
         conn,
         min_date: datetime,
@@ -834,15 +846,15 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
         readings_table_name=READINGS_TABLE_NAME,
     ):
         """
-        This method detects devices whose total daily usage exceeds a threshold configured on
-        the device's account (by a contact person) for at least 1 day.
+        Detects devices whose total daily usage exceeds a threshold configured on
+        the device's account (by a contact person in the Customer Portal) for at least 1 day.
 
         It mirrors _upsert_daily_usage_threshold_alerts, except the threshold is per-device
-        (each account can set its own threshold) rather than a single organization-wide value.
+        rather than a single organization-wide value. each account can set its own threshold that applies across all devices
         The per-device thresholds are staged into a temporary table and joined to daily usage so
         each device is compared against its own threshold.
         """
-        thresholds = self.meter_alerts.high_daily_usage_for_contact_person_thresholds
+        thresholds = self.meter_alerts.account_level_daily_high_usage_thresholds
 
         if not thresholds:
             logger.info(
@@ -851,34 +863,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
             )
             return
 
-        # Determine the distinct unit(s) readings are stored in for this org.
-        # All adapters normalize interval values to CF via map_reading before storing,
-        # so we assert CF is the only unit present before converting the configured thresholds.
-        distinct_units = [
-            row[0]
-            for row in conn.cursor()
-            .execute(
-                f"SELECT DISTINCT interval_unit FROM {readings_table_name} WHERE org_id = ? AND interval_unit IS NOT NULL",
-                (org_id,),
-            )
-            .fetchall()
-        ]
-        if not distinct_units:
-            logger.info(
-                f"No readings found for org_id {org_id}, skipping high daily usage for contact person alert detection."
-            )
-            return
-
-        # We assume all interval reads are stored in CF, which is the policy in our transform step
-        non_cf_units = [
-            u for u in distinct_units if u != GeneralMeterUnitOfMeasure.CUBIC_FEET
-        ]
-        if non_cf_units:
-            logger.warning(
-                f"Expected all interval readings for org_id {org_id} to be stored in CF, "
-                f"but found unexpected unit(s): {non_cf_units}. "
-                f"Skipping high daily usage for contact person alert detection."
-            )
+        if not self._readings_stored_in_cf(conn, org_id, readings_table_name):
             return
 
         # Convert each per-account threshold (keyed by device_id) to CF.
@@ -920,7 +905,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
         )
 
         sql = f"""
-            create or replace temporary table stage_high_daily_usage_for_contact_person
+            create or replace temporary table stage_high_daily_usage_for_account
             as
             -- First, calculate daily usage totals for each device
             WITH daily_usage AS (
@@ -1035,7 +1020,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
 
         num_alerts_detected = (
             conn.cursor()
-            .execute("select count(*) from stage_high_daily_usage_for_contact_person")
+            .execute("select count(*) from stage_high_daily_usage_for_account")
             .fetchone()[0]
         )
         logger.info(
@@ -1044,7 +1029,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
         self._merge_alerts(
             conn,
             meter_alerts_table_name,
-            "stage_high_daily_usage_for_contact_person",
+            "stage_high_daily_usage_for_account",
         )
 
     def _merge_alerts(self, conn, meter_alerts_table_name: str, stage_table_name: str):

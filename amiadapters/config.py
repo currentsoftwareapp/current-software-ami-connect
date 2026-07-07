@@ -218,7 +218,7 @@ class AMIAdapterConfiguration:
                 daily_high_usage_unit=this_meter_alerts_config.get(
                     "daily_high_usage_unit"
                 ),
-                high_daily_usage_for_contact_person_thresholds={
+                account_level_daily_high_usage_thresholds={
                     t["device_id"]: AccountHighUsageThreshold(
                         threshold=t["threshold"],
                         unit=t["unit"],
