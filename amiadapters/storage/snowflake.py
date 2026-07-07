@@ -445,6 +445,9 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
             self._upsert_daily_usage_threshold_alerts(
                 conn, min_date, max_date, self.org_id
             )
+            self._upsert_high_daily_usage_for_contact_person_alerts(
+                conn, min_date, max_date, self.org_id
+            )
 
     def _upsert_continuous_flow_alerts(
         self,
@@ -701,7 +704,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
             as
             -- First, calculate daily usage totals for each device
             WITH daily_usage AS (
-                SELECT 
+                SELECT
                     org_id,
                     device_id,
                     MIN(date_trunc('day', flowtime)) AS usage_date,
@@ -711,17 +714,17 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 and org_id = ?
                 and flowtime::date >= ?
                 and flowtime::date <= ?
-                GROUP BY 
-                    org_id, 
-                    device_id, 
+                GROUP BY
+                    org_id,
+                    device_id,
                     -- Group without timezone to account for daylight savings time boundaries when the tz offset shifts
                     date_trunc('day', flowtime)::timestamp_ntz
             ),
-            -- Create streaks of days where usage exceeds threshold by assigning a group ID to consecutive days above the threshold. 
-            -- The group ID is calculated by subtracting using a partition function's row number from the usage date, 
+            -- Create streaks of days where usage exceeds threshold by assigning a group ID to consecutive days above the threshold.
+            -- The group ID is calculated by subtracting using a partition function's row number from the usage date,
             -- so it remains constant for consecutive days and changes when there is a gap.
             streaks AS (
-                SELECT 
+                SELECT
                     org_id,
                     device_id,
                     usage_date,
@@ -756,8 +759,8 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
                 AND interval_value IS NOT NULL
                 GROUP BY org_id
             ),
-            -- Finally, determine if the alert is active by looking at the latest reading for the device and checking 
-            -- if it falls within the alert window. 
+            -- Finally, determine if the alert is active by looking at the latest reading for the device and checking
+            -- if it falls within the alert window.
             new_alerts_with_status AS (
                 SELECT
                     s.*,
@@ -819,6 +822,231 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
             conn,
             meter_alerts_table_name,
             "stage_daily_usage_thresholds",
+        )
+
+    def _upsert_high_daily_usage_for_contact_person_alerts(
+        self,
+        conn,
+        min_date: datetime,
+        max_date: datetime,
+        org_id: str,
+        meter_alerts_table_name=METER_ALERTS_TABLE_NAME,
+        readings_table_name=READINGS_TABLE_NAME,
+    ):
+        """
+        This method detects devices whose total daily usage exceeds a threshold configured on
+        the device's account (by a contact person) for at least 1 day.
+
+        It mirrors _upsert_daily_usage_threshold_alerts, except the threshold is per-device
+        (each account can set its own threshold) rather than a single organization-wide value.
+        The per-device thresholds are staged into a temporary table and joined to daily usage so
+        each device is compared against its own threshold.
+        """
+        thresholds = self.meter_alerts.high_daily_usage_for_contact_person_thresholds
+
+        if not thresholds:
+            logger.info(
+                f"Skipping high daily usage for contact person alert detection for org_id {org_id} "
+                f"because no account thresholds are configured."
+            )
+            return
+
+        # Determine the distinct unit(s) readings are stored in for this org.
+        # All adapters normalize interval values to CF via map_reading before storing,
+        # so we assert CF is the only unit present before converting the configured thresholds.
+        distinct_units = [
+            row[0]
+            for row in conn.cursor()
+            .execute(
+                f"SELECT DISTINCT interval_unit FROM {readings_table_name} WHERE org_id = ? AND interval_unit IS NOT NULL",
+                (org_id,),
+            )
+            .fetchall()
+        ]
+        if not distinct_units:
+            logger.info(
+                f"No readings found for org_id {org_id}, skipping high daily usage for contact person alert detection."
+            )
+            return
+
+        # We assume all interval reads are stored in CF, which is the policy in our transform step
+        non_cf_units = [
+            u for u in distinct_units if u != GeneralMeterUnitOfMeasure.CUBIC_FEET
+        ]
+        if non_cf_units:
+            logger.warning(
+                f"Expected all interval readings for org_id {org_id} to be stored in CF, "
+                f"but found unexpected unit(s): {non_cf_units}. "
+                f"Skipping high daily usage for contact person alert detection."
+            )
+            return
+
+        # Convert each per-account threshold (keyed by device_id) to CF.
+        threshold_cf_by_device = {}
+        for device_id, t in thresholds.items():
+            if t.threshold is None or t.unit is None or not device_id:
+                continue
+            converted_threshold, _ = map_reading(t.threshold, t.unit)
+            threshold_cf_by_device[device_id] = converted_threshold
+
+        if not threshold_cf_by_device:
+            logger.info(
+                f"No valid account thresholds after conversion for org_id {org_id}, "
+                f"skipping high daily usage for contact person alert detection."
+            )
+            return
+
+        logger.info(
+            f"Detecting high daily usage above per-account thresholds for "
+            f"{len(threshold_cf_by_device)} device(s) for org_id {org_id} "
+            f"on readings between {min_date} and {max_date}."
+        )
+
+        # Stage the per-device thresholds so we can join them to daily usage in SQL.
+        threshold_stage_table = "stage_contact_person_high_usage_thresholds"
+        conn.cursor().execute(
+            f"""
+            CREATE OR REPLACE TEMPORARY TABLE {threshold_stage_table} (
+                ORG_ID VARCHAR(16777216) NOT NULL,
+                DEVICE_ID VARCHAR(16777216) NOT NULL,
+                THRESHOLD_CF FLOAT NOT NULL,
+                unique (ORG_ID, DEVICE_ID)
+            );"""
+        )
+        conn.cursor().executemany(
+            f"INSERT INTO {threshold_stage_table} (org_id, device_id, threshold_cf) VALUES (?, ?, ?)",
+            [
+                (org_id, device_id, threshold_cf)
+                for device_id, threshold_cf in threshold_cf_by_device.items()
+            ],
+        )
+
+        sql = f"""
+            create or replace temporary table stage_high_daily_usage_for_contact_person
+            as
+            -- First, calculate daily usage totals for each device
+            WITH daily_usage AS (
+                SELECT
+                    org_id,
+                    device_id,
+                    MIN(date_trunc('day', flowtime)) AS usage_date,
+                    sum(interval_value) AS total_daily_usage
+                FROM {readings_table_name}
+                WHERE 1=1
+                and org_id = ?
+                and flowtime::date >= ?
+                and flowtime::date <= ?
+                GROUP BY
+                    org_id,
+                    device_id,
+                    -- Group without timezone to account for daylight savings time boundaries when the tz offset shifts
+                    date_trunc('day', flowtime)::timestamp_ntz
+            ),
+            -- Create streaks of days where usage exceeds the device's account threshold by assigning
+            -- a group ID to consecutive days above the threshold.
+            -- The group ID is calculated by subtracting a partition function's row number from the usage date,
+            -- so it remains constant for consecutive days and changes when there is a gap.
+            streaks AS (
+                SELECT
+                    du.org_id,
+                    du.device_id,
+                    du.usage_date,
+                    du.total_daily_usage,
+                    -- If usage > threshold, we assign a group ID by subtracting a row_number from the date
+                    -- So for consecutive days 1, 2, and 3 above the threshold, you would have a group ID of "1" for all three days
+                    -- If there is a gap (a day below the threshold), the row_number keeps increasing but the date jumps, so the result changes, indicating a new group
+                    DATEADD('day', -ROW_NUMBER() OVER (PARTITION BY du.org_id, du.device_id ORDER BY du.usage_date), du.usage_date::timestamp_ntz) AS streak_group
+                FROM daily_usage du
+                -- Join each device to its own account threshold
+                JOIN {threshold_stage_table} t
+                    ON t.org_id = du.org_id AND t.device_id = du.device_id
+                WHERE du.total_daily_usage > t.threshold_cf -- PER-DEVICE USAGE THRESHOLD HERE
+            ),
+            -- Now we group by the streak_group to get the start and end date of each streak of high usage.
+            new_alerts AS (
+                SELECT
+                    s.org_id,
+                    s.device_id,
+                    min(s.usage_date) AS new_alert_start,
+                    -- The alert "ends" at the start of the next day (the first day below threshold)
+                    dateadd('day', 1, max(s.usage_date)) AS new_alert_end
+                FROM streaks s
+                GROUP BY s.org_id, s.device_id, s.streak_group
+            ),
+            -- Get the org-wide latest read across all devices to detect devices that have gone silent.
+            -- A device whose last read is significantly older than the org max is likely not reporting,
+            -- so we should close its alert rather than leaving it open indefinitely.
+            org_latest_read AS (
+                SELECT
+                    org_id,
+                    MAX(flowtime) AS max_flowtime
+                FROM {readings_table_name}
+                WHERE org_id = ?
+                AND interval_value IS NOT NULL
+                GROUP BY org_id
+            ),
+            -- Finally, determine if the alert is active by looking at the latest reading for the device and checking
+            -- if it falls within the alert window.
+            new_alerts_with_status AS (
+                SELECT
+                    s.*,
+                    (
+                        -- Device's most recent read falls within the alert window
+                        m.last_flowtime <= s.new_alert_end
+                        -- Accounts for case where device's most recent read triggered the alert, then device stopped reporting
+                        AND (
+                            o.max_flowtime IS NULL
+                            OR m.last_flowtime >= DATEADD('day', -60, o.max_flowtime)
+                        )
+                    ) as IS_ACTIVE,
+                    'high_daily_usage_for_contact_person' as alert_type,
+                    NULL::INTEGER AS matching_existing_alert_id,
+                    ? as source
+                FROM new_alerts s
+                LEFT JOIN (
+                    SELECT
+                        ORG_ID,
+                        DEVICE_ID,
+                        FLOWTIME as last_flowtime,
+                        INTERVAL_VALUE as last_interval_value,
+                        REGISTER_VALUE as last_register_value
+                    FROM {readings_table_name}
+                    -- Only consider "clean"-like reads that would be part of a streak
+                    WHERE interval_value is not null
+                    -- This filters the results to only include the top 1 row per group, giving us the latest read
+                    QUALIFY ROW_NUMBER() OVER (
+                        PARTITION BY ORG_ID, DEVICE_ID
+                        ORDER BY FLOWTIME DESC
+                    ) = 1
+                ) m on s.org_id = m.org_id and s.device_id = m.device_id
+                LEFT JOIN org_latest_read o ON s.org_id = o.org_id
+            )
+            select * from new_alerts_with_status
+            ;
+        """
+        conn.cursor().execute(
+            sql,
+            (
+                org_id,
+                min_date,
+                max_date,
+                org_id,
+                MeterAlertSource.CURRENT,
+            ),
+        )
+
+        num_alerts_detected = (
+            conn.cursor()
+            .execute("select count(*) from stage_high_daily_usage_for_contact_person")
+            .fetchone()[0]
+        )
+        logger.info(
+            f"Detected {num_alerts_detected} high daily usage for contact person alerts in staging table for org_id {org_id}. Merging into {meter_alerts_table_name} table."
+        )
+        self._merge_alerts(
+            conn,
+            meter_alerts_table_name,
+            "stage_high_daily_usage_for_contact_person",
         )
 
     def _merge_alerts(self, conn, meter_alerts_table_name: str, stage_table_name: str):

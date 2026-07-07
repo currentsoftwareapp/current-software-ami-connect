@@ -29,12 +29,18 @@ def get_configuration(snowflake_connection, utility_billing_connection_url) -> T
     )
 
     ub_sources = []
+    ub_account_thresholds = []
     if utility_billing_connection_url:
-        ub_sources = _get_utility_billing_settings_from_postgres(
+        ub_sources = _get_utility_billing_org_wide_usage_threshold_from_postgres(
+            utility_billing_connection_url
+        )
+        ub_account_thresholds = _get_utility_billing_account_thresholds_from_postgres(
             utility_billing_connection_url
         )
 
-    sources = _merge_snowflake_and_utility_billing_settings(sources, ub_sources)
+    sources = _merge_snowflake_and_utility_billing_settings(
+        sources, ub_sources, ub_account_thresholds
+    )
 
     return sources, sinks, pipeline_config, notifications, backfills
 
@@ -112,7 +118,7 @@ def _get_configuration_from_snowflake(snowflake_connection):
     return sources, sinks, pipeline_config, notifications, backfills
 
 
-def _get_utility_billing_settings_from_postgres(
+def _get_utility_billing_org_wide_usage_threshold_from_postgres(
     utility_billing_settings_connection,
 ) -> Dict:
     with utility_billing_settings_connection.cursor() as cursor:
@@ -130,13 +136,50 @@ def _get_utility_billing_settings_from_postgres(
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
+def _get_utility_billing_account_thresholds_from_postgres(
+    utility_billing_settings_connection,
+) -> List[Dict]:
+    """
+    Fetch per-account high daily usage thresholds set by contact persons in the utility
+    billing app. These differ from the organization-wide threshold in that each threshold
+    applies only to a single account's devices.
+
+    We resolve each threshold down to a device_id here so that the alert detection code can
+    match thresholds to readings (readings are keyed by device_id). The device_id in this
+    system is the meter's external identifier.
+
+    NOTE: The exact join path between Account, Location and Meter is a best guess and should
+    be verified against the utility billing schema. The intent is:
+    Account.externalAccountId -> Location -> Meter.externalMeterId (== readings.device_id).
+    """
+    with utility_billing_settings_connection.cursor() as cursor:
+        cursor.execute("""
+                    SELECT
+                        o."snowflakeId",
+                        m."externalMeterId" AS device_id,
+                        a."meterAlertHighUsageThreshold" AS threshold,
+                        a."meterAlertHighUsageUnit" AS unit
+                    FROM public."Organization" o
+                    JOIN public."Account" a ON a."organizationId" = o."id"
+                    JOIN public."Location" l ON l."externalAccountId" = a."externalAccountId"
+                    JOIN public."Meter" m ON m."locationId" = l."id"
+                    WHERE o."snowflakeId" IS NOT NULL
+                    AND a."meterAlertHighUsageThreshold" IS NOT NULL
+                    AND a."meterAlertHighUsageUnit" IS NOT NULL
+                    AND m."externalMeterId" IS NOT NULL
+                    """)
+        columns = [col[0].lower() for col in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+
 def _merge_snowflake_and_utility_billing_settings(
-    snowflake_sources, utility_billing_sources
+    snowflake_sources, utility_billing_sources, utility_billing_account_thresholds=None
 ):
     """
     Merge Utility Billing app's settings from Postgresql with the sources from Snowflake.
     As of this writing, that means stitching the meter alerts for each organization into their source object.
     """
+    utility_billing_account_thresholds = utility_billing_account_thresholds or []
     for source in snowflake_sources:
         # Add meter alerts object to source config
         source["meter_alerts"] = {}
@@ -161,6 +204,24 @@ def _merge_snowflake_and_utility_billing_settings(
                         "meteralerthighusageunit"
                     ],
                 }
+
+        # Per-account (contact person) high daily usage thresholds for this org's devices
+        contact_person_thresholds = [
+            {
+                "device_id": t["device_id"],
+                "threshold": t["threshold"],
+                "unit": t["unit"],
+            }
+            for t in utility_billing_account_thresholds
+            if t.get("snowflakeid") == source["org_id"]
+            and t.get("device_id")
+            and t.get("threshold") is not None
+            and t.get("unit")
+        ]
+        if contact_person_thresholds:
+            source["meter_alerts"]["high_daily_usage_for_contact_person_thresholds"] = (
+                contact_person_thresholds
+            )
     return snowflake_sources
 
 
