@@ -21,6 +21,7 @@ class TestInngestEventPublisher(BaseTestCase):
                 "name": "meter-alerts/notify/task",
                 "data": {"snowflakeId": "test_org"},
             },
+            timeout=30,
         )
         self.session_mock.post.return_value.raise_for_status.assert_called_once()
 
