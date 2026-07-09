@@ -48,7 +48,7 @@ class InngestEventPublisher:
     def publish_meter_alert_notify_event(self, organization_id: str):
         event = MeterAlertNotifyEvent(org_id=organization_id)
         url = f"{self.event_api_url.rstrip('/')}/e/{self.event_key}"
-        response = self.session.post(url, json=event.to_payload())
+        response = self.session.post(url, json=event.to_payload(), timeout=30)
         response.raise_for_status()
         logger.info(
             f"Published meter alert notify event to Inngest for org {organization_id}"
