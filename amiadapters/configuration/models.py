@@ -28,6 +28,10 @@ class PipelineConfiguration:
     should_run_post_processor: bool
     should_publish_load_finished_events: bool
     metrics_type: MetricsBackendType
+    # Base URL and event key for the Inngest Event API, used to publish events
+    # that trigger functions in another application (the Utility Billing app).
+    inngest_event_api_url: str = None
+    inngest_event_key: str = None
 
 
 @dataclass

@@ -188,6 +188,8 @@ def _parse_pipeline_configuration(all_config: dict) -> PipelineConfiguration:
         should_run_post_processor=row["run_post_processors"],
         should_publish_load_finished_events=row["publish_load_finished_events"],
         metrics_type=row["metrics_type"],
+        inngest_event_api_url=row.get("inngest_event_api_url"),
+        inngest_event_key=row.get("inngest_event_key"),
     )
 
 

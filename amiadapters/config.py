@@ -99,6 +99,8 @@ class AMIAdapterConfiguration:
                 "should_publish_load_finished_events", True
             ),
             metrics_type=pipeline.get("metrics_type"),
+            inngest_event_api_url=pipeline.get("inngest_event_api_url"),
+            inngest_event_key=pipeline.get("inngest_event_key"),
         )
 
         return cls._make_instance(
