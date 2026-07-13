@@ -19,33 +19,13 @@ from amiadapters.storage.snowflake import RawSnowflakeLoader, RawSnowflakeTableL
 logger = logging.getLogger(__name__)
 
 
-# Metron Farnier's WaterScope Web API.
 BASE_URL = "https://webapi.waterscope.us"
 
 
 @dataclass
 class MetronReading:
     """
-    A billing read for a single meter from GET /api/Billing. The WaterScope API is
-    billing-oriented: each endpoint returns one cumulative register read per meter (there
-    is no interval/hourly history). Every read-bearing endpoint (Billing, CurrentStatus,
-    ExportProfile) returns the same shape. Example payload:
-
-        {
-            "Meter_ID": "3003008",
-            "LCD_Read": "10357889",
-            "Billing_Read": "10357889",
-            "Read_Date": "05/15/2018",
-            "Unit": "G",
-            "Reference": "2600",
-            "Account_Name": "Jack",
-            "Address": "Florida",
-            "Utility_Defined": "Custom Note"
-        }
-
-    Fields carry both the meter identity and the account/location, so a single record is
-    enough to build both our meter and read models. `Read_Date` is date-only (no time
-    component), which is why this source can only provide daily/monthly billing reads.
+    One cumulative register read for a Metron meter (there is no interval/hourly history).
     """
 
     meter_id: str
@@ -68,30 +48,10 @@ class MetronAdapter(BaseAMIAdapter):
     reads only.
     """
 
-    # numberDaysWindow tells the API how many days to look back if there is no data for
-    # the requested billing date. Meters do not always communicate every day, so we use a
-    # window generous enough to still return the most recent read on a normal daily run.
-    BILLING_DAYS_WINDOW = 7
-
-    # Seconds to wait on an API request before giving up, so an unresponsive server
-    # cannot hang the pipeline indefinitely.
-    REQUEST_TIMEOUT_SECONDS = 30
-
-    # WaterScope's date format, e.g. "05/15/2018", used both for the billingDate query
-    # parameter and for parsing Read_Date in responses.
     DATE_FORMAT = "%m/%d/%Y"
 
-    # WaterScope unit codes mapped to our canonical units. The API uses short codes (e.g.
-    # "G" for gallons) that our reading converter does not recognize directly.
     UNIT_MAP = {
         "G": GeneralMeterUnitOfMeasure.GAL,
-        "GAL": GeneralMeterUnitOfMeasure.GAL,
-        "GALLON": GeneralMeterUnitOfMeasure.GALLON,
-        "GALLONS": GeneralMeterUnitOfMeasure.GALLONS,
-        "CF": GeneralMeterUnitOfMeasure.CUBIC_FEET,
-        "CUFT": GeneralMeterUnitOfMeasure.CUBIC_FEET,
-        "CCF": GeneralMeterUnitOfMeasure.HUNDRED_CUBIC_FEET,
-        "KGAL": GeneralMeterUnitOfMeasure.KILO_GALLON,
     }
 
     def __init__(
@@ -126,6 +86,19 @@ class MetronAdapter(BaseAMIAdapter):
     def name(self) -> str:
         return f"metron-{self.org_id}"
 
+    def _extract(
+        self,
+        run_id: str,
+        extract_range_start: datetime,
+        extract_range_end: datetime,
+    ) -> ExtractOutput:
+        reads = self._extract_reads(extract_range_start, extract_range_end)
+        return ExtractOutput(
+            {
+                "reads.json": self._to_json(reads),
+            }
+        )
+    
     def _get(self, path: str, params: Dict = None) -> list:
         """
         Issue a GET against the WaterScope API and return the parsed JSON body. The
@@ -138,7 +111,7 @@ class MetronAdapter(BaseAMIAdapter):
         response = requests.get(
             url,
             params=params,
-            timeout=self.REQUEST_TIMEOUT_SECONDS,
+            timeout=30,
         )
         if response.status_code != 200:
             raise Exception(
@@ -146,24 +119,8 @@ class MetronAdapter(BaseAMIAdapter):
             )
         return response.json()
 
-    def _extract(
-        self,
-        run_id: str,
-        extract_range_start: datetime,
-        extract_range_end: datetime,
-    ) -> ExtractOutput:
-        logger.info(
-            f"Extracting {self.org_id} data from {extract_range_start} to {extract_range_end}"
-        )
-        reads = self._extract_reads(extract_range_start, extract_range_end)
-        return ExtractOutput(
-            {
-                "reads.json": self._to_jsonl(reads),
-            }
-        )
-
     @staticmethod
-    def _to_jsonl(records: list) -> str:
+    def _to_json(records: list) -> str:
         return "\n".join(json.dumps(r, cls=DataclassJSONEncoder) for r in records)
 
     def _extract_reads(
@@ -171,15 +128,10 @@ class MetronAdapter(BaseAMIAdapter):
     ) -> List[MetronReading]:
         """
         Fetch a billing read per meter as of the end of the extract range. The API returns
-        a single read per meter (not a time series), so one request covers the range. We
-        widen numberDaysWindow to span the range so that backfills over a longer window
-        still return the most recent read available within it.
+        a single read per meter (not a time series), so one request covers the range.
         """
         billing_date = extract_range_end.strftime(self.DATE_FORMAT)
-        days_window = max(
-            self.BILLING_DAYS_WINDOW,
-            (extract_range_end - extract_range_start).days,
-        )
+        days_window = (extract_range_end - extract_range_start).days
         params = {
             "username": self.username,
             "password": self.password,

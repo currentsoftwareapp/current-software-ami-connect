@@ -74,11 +74,11 @@ class TestMetronAdapter(BaseTestCase):
         self.assertEqual("pass", params["password"])
         # billingDate is the end of the range, formatted MM/DD/YYYY.
         self.assertEqual("01/26/2026", params["billingDate"])
-        # Window falls back to the default when the range is narrower than it.
-        self.assertEqual(self.adapter.BILLING_DAYS_WINDOW, params["numberDaysWindow"])
+        # numberDaysWindow is the span of the extract range in days.
+        self.assertEqual(1, params["numberDaysWindow"])
 
     @mock.patch("requests.get", side_effect=[mocked_get_billing()])
-    def test_extract_reads_widens_window_for_wide_range(self, mock_get):
+    def test_extract_reads_window_spans_range(self, mock_get):
         wide_start = datetime.datetime(2026, 1, 1, 0, 0)
         wide_end = datetime.datetime(2026, 1, 31, 0, 0)
         self.adapter._extract_reads(wide_start, wide_end)
