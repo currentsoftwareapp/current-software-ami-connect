@@ -162,6 +162,8 @@ class MetronAdapter(BaseAMIAdapter):
             "username": self.username,
             "password": self.password,
             "billingDate": billing_date,
+            # Number of days window the API will look back if data is unavailable for the
+            # requested day.
             "numberDaysWindow": days_window,
         }
         logger.info(
@@ -265,6 +267,12 @@ class MetronAdapter(BaseAMIAdapter):
             value = self._parse_float(raw_read.billing_read)
             if value is None:
                 value = self._parse_float(raw_read.lcd_read)
+            if value is None:
+                logger.warning(
+                    f"Skipping read with missing/unparseable Billing_Read and LCD_Read "
+                    f"for {self.org_id}: {raw_read}"
+                )
+                continue
 
             register_value, register_unit = self.map_reading(
                 value, self._map_unit(raw_read.unit)

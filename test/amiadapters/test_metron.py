@@ -223,6 +223,30 @@ class TestMetronAdapter(BaseTestCase):
         self.assertEqual(1, len(transformed_reads))
         self.assertEqual(expected_value, transformed_reads[0].register_value)
 
+    def test_transform_skips_read_with_no_parseable_value(self):
+        reads = [
+            MetronReading(
+                meter_id="3003008",
+                lcd_read="not-a-number",
+                billing_read=None,
+                read_date="05/15/2018",
+                unit="G",
+                reference="2600",
+                account_name="Jack",
+                address="123 Main St",
+                utility_defined=None,
+            )
+        ]
+
+        transformed_meters, transformed_reads = (
+            self.adapter._transform_meters_and_reads(reads)
+        )
+
+        # The meter is still built, but the valueless read is skipped rather than
+        # producing a read with a None register_value.
+        self.assertEqual(1, len(transformed_meters))
+        self.assertEqual(0, len(transformed_reads))
+
     def test_transform_unknown_unit_keeps_value_unconverted(self):
         reads = [
             MetronReading(
