@@ -157,7 +157,7 @@ class MetronAdapter(BaseAMIAdapter):
         a single read per meter (not a time series), so one request covers the range.
         """
         billing_date = extract_range_end.strftime(self.DATE_FORMAT)
-        days_window = (extract_range_end - extract_range_start).days
+        days_window = max(1, (extract_range_end - extract_range_start).days)
         params = {
             "username": self.username,
             "password": self.password,
