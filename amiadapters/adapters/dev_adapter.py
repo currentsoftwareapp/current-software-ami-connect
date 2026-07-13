@@ -51,7 +51,7 @@ class DevAdapter(BaseAMIAdapter):
             "location_id": "1-1-3",
         },  # Tiffany Bruce
     ]
-    DAILY_INTERVAL_VALUE = 500.0
+    HOURLY_INTERVAL_VALUE = 500.0
     READ_UNIT = GeneralMeterUnitOfMeasure.CUBIC_FEET
 
     def __init__(
@@ -128,13 +128,13 @@ class DevAdapter(BaseAMIAdapter):
         inside whatever window the post-processor queries.
         """
         reads = []
-        register_value_by_device = {d["device_id"]: 1000.0 for d in self.DEVICES}
+        base_register_read = 1000.0
+        epoch = datetime(2020, 1, 1, tzinfo=extract_range_start.tzinfo)
         flowtime = extract_range_start
         while flowtime < extract_range_end:
+            hours_since_epoch = int((flowtime - epoch).total_seconds() // 3600)
             for device in self.DEVICES:
-                register_value_by_device[
-                    device["device_id"]
-                ] += self.DAILY_INTERVAL_VALUE
+                register_value = base_register_read + (hours_since_epoch * self.HOURLY_INTERVAL_VALUE)
                 reads.append(
                     GeneralMeterRead(
                         org_id=self.org_id,
@@ -142,9 +142,9 @@ class DevAdapter(BaseAMIAdapter):
                         account_id=device["account_id"],
                         location_id=device["location_id"],
                         flowtime=flowtime,
-                        register_value=register_value_by_device[device["device_id"]],
+                        register_value=register_value,
                         register_unit=self.READ_UNIT,
-                        interval_value=self.DAILY_INTERVAL_VALUE,
+                        interval_value=self.HOURLY_INTERVAL_VALUE,
                         interval_unit=self.READ_UNIT,
                         battery=None,
                         install_date=None,
@@ -152,7 +152,7 @@ class DevAdapter(BaseAMIAdapter):
                         connection=None,
                     )
                 )
-            flowtime += timedelta(days=1)
+            flowtime += timedelta(hours=1)
         return reads
 
     def _transform(
