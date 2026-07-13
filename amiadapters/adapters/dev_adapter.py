@@ -134,7 +134,9 @@ class DevAdapter(BaseAMIAdapter):
         while flowtime < extract_range_end:
             hours_since_epoch = int((flowtime - epoch).total_seconds() // 3600)
             for device in self.DEVICES:
-                register_value = base_register_read + (hours_since_epoch * self.HOURLY_INTERVAL_VALUE)
+                register_value = base_register_read + (
+                    hours_since_epoch * self.HOURLY_INTERVAL_VALUE
+                )
                 reads.append(
                     GeneralMeterRead(
                         org_id=self.org_id,
