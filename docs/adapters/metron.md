@@ -8,6 +8,10 @@ It pulls a billing read per meter from `GET /api/Billing`. Each record carries b
 meter identity and the account/location, so a single response is enough to build our
 generalized meter and read models.
 
+It also pulls meter conditions (alarms) from `GET /api/ConditionsDetails` and transforms
+them into meter alerts. Each condition has a coded `EventType` (e.g. "Zero Usage",
+"Threshold Leak") and a date-only `DayOfOccurence`.
+
 ## Authentication
 
 Requests are authenticated by passing `username` and `password` as query parameters.
@@ -33,6 +37,7 @@ python cli.py config update-secret my_utility --source-type metron --secret user
 - The WaterScope API is billing-oriented and does **not** expose interval (hourly) reads.
   It returns a single cumulative register read per meter, with a date-only `Read_Date`, so
   this adapter produces daily/monthly billing reads only.
-- The API does not expose meter alerts, so no alerts are produced.
+- Meter alerts (conditions) carry only the day they occurred, so an alert's start and end
+  time are both set to that day.
 - The API returns a single free-text address with no separate city/state/zip, and no
   MIU/radio (endpoint) identifier, meter size, install date, or multiplier.

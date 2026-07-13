@@ -210,6 +210,9 @@ class RawSnowflakeLoader:
         Merge data from temp table into the base table using the unique_by keys
         """
         columns_lower = list(column.lower() for column in columns)
+        columns_without_unique_by = [
+            name for name in columns_lower if name not in unique_by
+        ]
         logger.info(f"Merging {temp_table} into {table}")
         merge_sql = f"""
             MERGE INTO {table} AS target
@@ -217,8 +220,8 @@ class RawSnowflakeLoader:
                 -- Use GROUP BY to ensure there are no duplicate rows before merge
                 SELECT 
                     org_id,
-                    {", ".join(unique_by)},
-                    {", ".join([f"max({name}) as {name}" for name in columns_lower if name not in unique_by])}, 
+                    {", ".join(unique_by)}
+                    {("," + ", ".join([f"max({name}) as {name}" for name in columns_without_unique_by])) if columns_without_unique_by else ""}, 
                     max(created_time) as created_time
                 FROM {temp_table} t
                 GROUP BY org_id, {", ".join(unique_by)}

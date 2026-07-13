@@ -10,8 +10,10 @@ from amiadapters.adapters.base import BaseAMIAdapter
 from amiadapters.models import (
     DataclassJSONEncoder,
     GeneralMeter,
+    GeneralMeterAlert,
     GeneralMeterRead,
     GeneralMeterUnitOfMeasure,
+    MeterAlertSource,
 )
 from amiadapters.outputs.base import ExtractOutput
 from amiadapters.storage.snowflake import RawSnowflakeLoader, RawSnowflakeTableLoader
@@ -39,13 +41,34 @@ class MetronReading:
     utility_defined: str
 
 
+@dataclass
+class MetronCondition:
+    """
+    A meter condition/alarm from GET /api/ConditionsDetails. Example payload:
+
+        {
+            "MeterId": 90000001,
+            "EventType": "Zero Usage",
+            "DayOfOccurence": "08/19/2021"
+        }
+
+    EventType is a coded string (e.g. "Zero Usage", "Threshold Leak"). The API reports only
+    the day the condition occurred (date-only, no time), with no end/resolution date.
+    """
+
+    meter_id: str
+    event_type: str
+    day_of_occurrence: str
+
+
 class MetronAdapter(BaseAMIAdapter):
     """
     AMI Adapter for Metron Farnier's WaterScope Web API.
 
     The WaterScope API does not expose interval (hourly) reads. It returns a single
     cumulative register read per meter, so this adapter produces daily/monthly billing
-    reads only.
+    reads only. Meter conditions (alarms) are pulled from the ConditionsDetails endpoint
+    and transformed into meter alerts.
     """
 
     DATE_FORMAT = "%m/%d/%Y"
@@ -79,6 +102,7 @@ class MetronAdapter(BaseAMIAdapter):
             RawSnowflakeLoader.with_table_loaders(
                 [
                     MetronRawReadsLoader(),
+                    MetronRawConditionsLoader(),
                 ]
             ),
         )
@@ -93,12 +117,14 @@ class MetronAdapter(BaseAMIAdapter):
         extract_range_end: datetime,
     ) -> ExtractOutput:
         reads = self._extract_reads(extract_range_start, extract_range_end)
+        conditions = self._extract_conditions()
         return ExtractOutput(
             {
                 "reads.json": self._to_json(reads),
+                "conditions.json": self._to_json(conditions),
             }
         )
-    
+
     def _get(self, path: str, params: Dict = None) -> list:
         """
         Issue a GET against the WaterScope API and return the parsed JSON body. The
@@ -164,6 +190,31 @@ class MetronAdapter(BaseAMIAdapter):
         logger.info(f"Extracted {len(reads)} reads for {self.org_id}")
         return reads
 
+    def _extract_conditions(self) -> List[MetronCondition]:
+        """
+        Fetch current meter conditions (alarms). Called without a meterId so the API
+        returns conditions for every meter.
+        """
+        params = {
+            "username": self.username,
+            "password": self.password,
+        }
+        logger.info(f"Extracting conditions for {self.org_id}")
+        raw = self._get("/api/ConditionsDetails", params)
+        conditions = [
+            MetronCondition(
+                meter_id=(
+                    str(c.get("MeterId")) if c.get("MeterId") is not None else None
+                ),
+                event_type=c.get("EventType"),
+                # Note the API's spelling: "DayOfOccurence".
+                day_of_occurrence=c.get("DayOfOccurence"),
+            )
+            for c in raw
+        ]
+        logger.info(f"Extracted {len(conditions)} conditions for {self.org_id}")
+        return conditions
+
     def _transform(self, run_id: str, extract_outputs: ExtractOutput):
         raw_reads = extract_outputs.load_from_file("reads.json", MetronReading)
         return self._transform_meters_and_reads(raw_reads)
@@ -182,31 +233,27 @@ class MetronAdapter(BaseAMIAdapter):
                 continue
             meter_id = str(raw_read.meter_id)
 
-            # A single record carries both meter and account/location metadata. Build the
-            # meter once (records repeat the same meter metadata across runs).
             if meter_id not in meters_by_id:
                 meters_by_id[meter_id] = GeneralMeter(
                     org_id=self.org_id,
                     device_id=meter_id,
                     account_id=raw_read.reference,
                     # We have no separate location identifier from the API; reuse the
-                    # account reference as the location ID, as we've done for other sources.
+                    # account reference as the location ID
                     location_id=raw_read.reference,
                     meter_id=meter_id,
-                    # The API exposes no MIU/radio identifier.
                     endpoint_id=None,
                     meter_install_date=None,
                     meter_size=None,
-                    meter_manufacturer="Metron",
+                    meter_manufacturer=None,
                     multiplier=None,
                     location_address=raw_read.address,
-                    # The API returns a single free-text address with no city/state/zip.
                     location_city=None,
                     location_state=None,
                     location_zip=None,
                 )
 
-            flowtime = self._parse_read_date(raw_read.read_date)
+            flowtime = self._parse_date(raw_read.read_date)
             if flowtime is None:
                 logger.warning(
                     f"Skipping read with missing/unparseable Read_Date for {self.org_id}: {raw_read}"
@@ -243,22 +290,22 @@ class MetronAdapter(BaseAMIAdapter):
 
         return list(meters_by_id.values()), meter_reads
 
-    def _parse_read_date(self, read_date: Optional[str]) -> Optional[datetime]:
+    def _parse_date(self, date_str: Optional[str]) -> Optional[datetime]:
         """
-        Parse WaterScope's date-only Read_Date (e.g. "05/15/2018") into a timezone-aware
-        datetime at midnight in the org's timezone. Falls back to ISO parsing in case the
-        API ever returns an ISO timestamp.
+        Parse a WaterScope date-only string (e.g. "05/15/2018", used for both Read_Date and
+        DayOfOccurence) into a timezone-aware datetime at midnight in the org's timezone.
+        Falls back to ISO parsing in case the API ever returns an ISO timestamp.
         """
-        if not read_date:
+        if not date_str:
             return None
         try:
-            parsed = datetime.strptime(read_date, self.DATE_FORMAT)
+            parsed = datetime.strptime(date_str, self.DATE_FORMAT)
             return self.org_timezone.localize(parsed)
         except (TypeError, ValueError):
             pass
         # datetime_from_iso_str localizes naive datetimes with the org timezone for us.
         try:
-            return self.datetime_from_iso_str(read_date, self.org_timezone)
+            return self.datetime_from_iso_str(date_str, self.org_timezone)
         except (TypeError, ValueError):
             return None
 
@@ -287,12 +334,45 @@ class MetronAdapter(BaseAMIAdapter):
         except (TypeError, ValueError):
             return None
 
-    def _transform_meter_alerts(self, run_id, extract_outputs):
+    def _transform_meter_alerts(
+        self, run_id, extract_outputs
+    ) -> List[GeneralMeterAlert]:
         """
-        The WaterScope Billing API does not expose meter alerts, so there is nothing to
-        transform.
+        Transform Metron conditions into meter alerts. The API reports only the day a
+        condition occurred, so the alert's start_time is that day (localized) and it has no
+        end_time.
         """
-        return []
+        raw_conditions = extract_outputs.load_from_file(
+            "conditions.json", MetronCondition, allow_empty=True
+        )
+        alerts = []
+        for condition in raw_conditions:
+            if condition.meter_id is None or condition.event_type is None:
+                logger.warning(
+                    f"Skipping condition with missing meter_id or event_type for "
+                    f"{self.org_id}: {condition}"
+                )
+                continue
+            start_time = self._parse_date(condition.day_of_occurrence)
+            if start_time is None:
+                logger.warning(
+                    f"Skipping condition with missing/unparseable DayOfOccurence for "
+                    f"{self.org_id}: {condition}"
+                )
+                continue
+            alerts.append(
+                GeneralMeterAlert(
+                    org_id=self.org_id,
+                    device_id=str(condition.meter_id),
+                    alert_type=condition.event_type,
+                    start_time=start_time,
+                    # The API reports only the day a condition occurred, with no end/
+                    # resolution date, so we set the end equal to the start.
+                    end_time=start_time,
+                    source=MeterAlertSource.METRON,
+                )
+            )
+        return alerts
 
 
 class MetronRawReadsLoader(RawSnowflakeTableLoader):
@@ -308,4 +388,22 @@ class MetronRawReadsLoader(RawSnowflakeTableLoader):
 
     def prepare_raw_data(self, extract_outputs):
         raw_data = extract_outputs.load_from_file("reads.json", MetronReading)
+        return [tuple(getattr(i, name) for name in self.columns()) for i in raw_data]
+
+
+class MetronRawConditionsLoader(RawSnowflakeTableLoader):
+
+    def table_name(self) -> str:
+        return "metron_condition_base"
+
+    def columns(self) -> List[str]:
+        return list(MetronCondition.__dataclass_fields__.keys())
+
+    def unique_by(self) -> List[str]:
+        return ["meter_id", "event_type", "day_of_occurrence"]
+
+    def prepare_raw_data(self, extract_outputs):
+        raw_data = extract_outputs.load_from_file(
+            "conditions.json", MetronCondition, allow_empty=True
+        )
         return [tuple(getattr(i, name) for name in self.columns()) for i in raw_data]

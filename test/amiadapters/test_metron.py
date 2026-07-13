@@ -4,9 +4,11 @@ from unittest import mock
 
 from amiadapters.adapters.metron import (
     MetronAdapter,
+    MetronCondition,
     MetronReading,
 )
-from amiadapters.models import GeneralMeter, GeneralMeterRead
+from amiadapters.models import GeneralMeter, GeneralMeterAlert, GeneralMeterRead
+from amiadapters.outputs.base import ExtractOutput
 
 from test.base_test_case import BaseTestCase, MockResponse, mocked_response_500
 
@@ -23,6 +25,17 @@ def mocked_get_billing(*args, **kwargs):
             "Account_Name": "Jack",
             "Address": "123 Main St",
             "Utility_Defined": "Custom Note",
+        }
+    ]
+    return MockResponse(data, 200)
+
+
+def mocked_get_conditions(*args, **kwargs):
+    data = [
+        {
+            "MeterId": 90000001,
+            "EventType": "Zero Usage",
+            "DayOfOccurence": "08/19/2021",
         }
     ]
     return MockResponse(data, 200)
@@ -120,7 +133,7 @@ class TestMetronAdapter(BaseTestCase):
                     endpoint_id=None,
                     meter_install_date=None,
                     meter_size=None,
-                    meter_manufacturer="Metron",
+                    meter_manufacturer=None,
                     multiplier=None,
                     location_address="123 Main St",
                     location_city=None,
@@ -289,5 +302,100 @@ class TestMetronAdapter(BaseTestCase):
         self.assertEqual(1, len(transformed_meters))
         self.assertEqual(0, len(transformed_reads))
 
-    def test_transform_meter_alerts_is_empty(self):
-        self.assertEqual([], self.adapter._transform_meter_alerts("run", None))
+    @mock.patch("requests.get", side_effect=[mocked_get_conditions()])
+    def test_extract_conditions(self, mock_get):
+        result = self.adapter._extract_conditions()
+        self.assertEqual(1, len(result))
+        self.assertEqual(
+            MetronCondition(
+                meter_id="90000001",
+                event_type="Zero Usage",
+                day_of_occurrence="08/19/2021",
+            ),
+            result[0],
+        )
+        call = mock_get.call_args_list[0]
+        self.assertEqual(
+            "https://webapi.waterscope.us/api/ConditionsDetails", call.args[0]
+        )
+        params = call.kwargs["params"]
+        self.assertEqual("user", params["username"])
+        self.assertEqual("pass", params["password"])
+        # Called without meterId so the API returns conditions for every meter.
+        self.assertNotIn("meterId", params)
+
+    def _conditions_extract_output(self, conditions):
+        return ExtractOutput({"conditions.json": self.adapter._to_json(conditions)})
+
+    def test_transform_meter_alerts(self):
+        extract_output = self._conditions_extract_output(
+            [
+                MetronCondition(
+                    meter_id="90000001",
+                    event_type="Zero Usage",
+                    day_of_occurrence="08/19/2021",
+                )
+            ]
+        )
+
+        alerts = self.adapter._transform_meter_alerts("run", extract_output)
+
+        self.assertEqual(
+            [
+                GeneralMeterAlert(
+                    org_id="this-utility",
+                    device_id="90000001",
+                    alert_type="Zero Usage",
+                    start_time=self.adapter.org_timezone.localize(
+                        datetime.datetime(2021, 8, 19, 0, 0)
+                    ),
+                    end_time=self.adapter.org_timezone.localize(
+                        datetime.datetime(2021, 8, 19, 0, 0)
+                    ),
+                    source="Metron",
+                )
+            ],
+            alerts,
+        )
+
+    def test_transform_meter_alerts_skips_bad_records(self):
+        extract_output = self._conditions_extract_output(
+            [
+                # Missing meter_id.
+                MetronCondition(
+                    meter_id=None,
+                    event_type="Zero Usage",
+                    day_of_occurrence="08/19/2021",
+                ),
+                # Missing event_type.
+                MetronCondition(
+                    meter_id="90000001",
+                    event_type=None,
+                    day_of_occurrence="08/19/2021",
+                ),
+                # Unparseable day.
+                MetronCondition(
+                    meter_id="90000001",
+                    event_type="Threshold Leak",
+                    day_of_occurrence=None,
+                ),
+                # Valid.
+                MetronCondition(
+                    meter_id="90000002",
+                    event_type="Threshold Leak",
+                    day_of_occurrence="08/20/2021",
+                ),
+            ]
+        )
+
+        alerts = self.adapter._transform_meter_alerts("run", extract_output)
+
+        self.assertEqual(1, len(alerts))
+        self.assertEqual("90000002", alerts[0].device_id)
+        self.assertEqual("Threshold Leak", alerts[0].alert_type)
+
+    def test_transform_meter_alerts_empty(self):
+        extract_output = ExtractOutput({"conditions.json": ""})
+        self.assertEqual(
+            [], self.adapter._transform_meter_alerts("run", extract_output)
+        )
