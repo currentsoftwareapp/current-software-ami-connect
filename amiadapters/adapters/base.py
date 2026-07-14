@@ -16,7 +16,7 @@ from amiadapters.configuration.models import ConfiguredStorageSinkType
 from amiadapters.configuration.models import IntermediateOutputType
 from amiadapters.configuration.models import MetricsConfigurationBase
 from amiadapters.configuration.models import PipelineConfiguration
-from amiadapters.events.base import EventPublisher
+from amiadapters.events.inngest import InngestEventPublisher
 from amiadapters.metrics.base import Metrics
 from amiadapters.models import GeneralMeter, GeneralMeterAlert, GeneralMeterRead
 from amiadapters.outputs.base import ExtractOutput
@@ -303,18 +303,21 @@ class BaseAMIAdapter(ABC):
             else:
                 logger.info("Skipping sink post processor as configured")
 
-            # Publish event saying we finished loading data
+            # Now that data is loaded, trigger meter alert notifications in the
+            # Utility Billing app via Inngest.
             if self.pipeline_configuration.should_publish_load_finished_events:
-                logger.info("Publishing load finished event")
-                event_publisher = EventPublisher()
-                event_publisher.publish_load_finished_event(
-                    run_id=run_id,
-                    org_id=self.org_id,
-                    start_date=extract_range_start,
-                    end_date=extract_range_end,
+                logger.info("Publishing meter alert notify event")
+                event_publisher = InngestEventPublisher(
+                    event_api_url=self.pipeline_configuration.inngest_event_api_url,
+                    event_key=self.pipeline_configuration.inngest_event_key,
+                )
+                event_publisher.publish_meter_alert_notify_event(
+                    organization_id=self.org_id,
                 )
             else:
-                logger.info("Skipping load finished event publication as configured")
+                logger.info(
+                    "Skipping meter alert notify event publication as configured"
+                )
 
     def datetime_from_iso_str(
         self, datetime_str: str, timezone_of_measurement: DstTzInfo

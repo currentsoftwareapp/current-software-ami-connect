@@ -9,7 +9,9 @@ CREATE TABLE if not exists configuration_pipeline (
     intermediate_output_local_output_path STRING,
     run_post_processors BOOLEAN NOT NULL DEFAULT TRUE,
     publish_load_finished_events BOOLEAN NOT NULL DEFAULT FALSE,
-    metrics_type STRING
+    metrics_type STRING,
+    inngest_event_api_url STRING,
+    inngest_event_key STRING
 );
 
 -- =========================================

@@ -148,6 +148,8 @@ class TestDatabase(BaseTestCase):
                     "run_post_processors": True,
                     "publish_load_finished_events": False,
                     "metrics_type": None,
+                    "inngest_event_api_url": "https://inngest.example.com",
+                    "inngest_event_key": "test-event-key",
                 },
             ]
         elif table_name == "configuration_notifications":
@@ -218,6 +220,10 @@ class TestDatabase(BaseTestCase):
         )
         self.assertTrue(pipeline_config.should_run_post_processor)
         self.assertFalse(pipeline_config.should_publish_load_finished_events)
+        self.assertEqual(
+            "https://inngest.example.com", pipeline_config.inngest_event_api_url
+        )
+        self.assertEqual("test-event-key", pipeline_config.inngest_event_key)
         self.assertIsNone(pipeline_config.metrics_type)
         self.assertEqual(expected["notifications"], notifications)
         self.assertEqual(expected["backfills"], backfills)
