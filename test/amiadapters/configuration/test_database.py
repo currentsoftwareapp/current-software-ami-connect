@@ -6,6 +6,7 @@ from pytz.exceptions import UnknownTimeZoneError
 import yaml
 
 from amiadapters.configuration.database import (
+    _merge_snowflake_and_utility_billing_settings,
     add_data_quality_check_configurations,
     add_source_configuration,
     get_configuration,
@@ -193,12 +194,21 @@ class TestDatabase(BaseTestCase):
         ]
 
     @patch(
-        "amiadapters.configuration.database._get_utility_billing_settings_from_postgres"
+        "amiadapters.configuration.database._get_utility_billing_account_thresholds_from_postgres"
+    )
+    @patch(
+        "amiadapters.configuration.database._get_utility_billing_org_wide_usage_threshold_from_postgres"
     )
     @patch("amiadapters.configuration.database._fetch_table")
-    def test_get_database_config(self, mock_fetch_table, mock_fetch_postgres_table):
+    def test_get_database_config(
+        self,
+        mock_fetch_table,
+        mock_fetch_postgres_table,
+        mock_fetch_account_thresholds,
+    ):
         mock_fetch_table.side_effect = self.fake_fetch
         mock_fetch_postgres_table.side_effect = self.fake_fetch_postgres
+        mock_fetch_account_thresholds.return_value = []
 
         sources, sinks, pipeline_config, notifications, backfills = get_configuration(
             snowflake_connection=MagicMock(),
@@ -227,6 +237,86 @@ class TestDatabase(BaseTestCase):
         self.assertIsNone(pipeline_config.metrics_type)
         self.assertEqual(expected["notifications"], notifications)
         self.assertEqual(expected["backfills"], backfills)
+
+    def test_merge_attaches_account_thresholds_to_matching_org(self):
+        sources = [
+            {"org_id": "my_beacon_utility"},
+            {"org_id": "my_subeca_utility"},
+        ]
+        ub_sources = [
+            {
+                "snowflakeid": "my_beacon_utility",
+                "meteralerthighusagethreshold": 100,
+                "meteralerthighusageunit": "CF",
+            }
+        ]
+        account_thresholds = [
+            # Matches beacon
+            {
+                "snowflakeid": "my_beacon_utility",
+                "device_id": "device_a",
+                "threshold": 50,
+                "unit": "CCF",
+            },
+            # Matches beacon, second device
+            {
+                "snowflakeid": "my_beacon_utility",
+                "device_id": "device_b",
+                "threshold": 25,
+                "unit": "CF",
+            },
+            # Belongs to another org, should be ignored for these sources
+            {
+                "snowflakeid": "some_other_utility",
+                "device_id": "device_c",
+                "threshold": 10,
+                "unit": "CF",
+            },
+            # Missing threshold, should be filtered out
+            {
+                "snowflakeid": "my_subeca_utility",
+                "device_id": "device_d",
+                "threshold": None,
+                "unit": "CF",
+            },
+        ]
+
+        merged = _merge_snowflake_and_utility_billing_settings(
+            sources, ub_sources, account_thresholds
+        )
+
+        beacon = next(s for s in merged if s["org_id"] == "my_beacon_utility")
+        self.assertEqual(beacon["meter_alerts"]["daily_high_usage_threshold"], 100)
+        self.assertEqual(
+            beacon["meter_alerts"]["account_level_daily_high_usage_thresholds"],
+            [
+                {"device_id": "device_a", "threshold": 50, "unit": "CCF"},
+                {"device_id": "device_b", "threshold": 25, "unit": "CF"},
+            ],
+        )
+
+        # Subeca's only account threshold was missing a value, so no key is added
+        subeca = next(s for s in merged if s["org_id"] == "my_subeca_utility")
+        self.assertNotIn(
+            "account_level_daily_high_usage_thresholds", subeca["meter_alerts"]
+        )
+
+    def test_merge_without_account_thresholds_leaves_meter_alerts_unchanged(self):
+        sources = [{"org_id": "my_beacon_utility"}]
+        ub_sources = [
+            {
+                "snowflakeid": "my_beacon_utility",
+                "meteralerthighusagethreshold": 100,
+                "meteralerthighusageunit": "CF",
+            }
+        ]
+
+        merged = _merge_snowflake_and_utility_billing_settings(sources, ub_sources)
+
+        self.assertNotIn(
+            "account_level_daily_high_usage_thresholds",
+            merged[0]["meter_alerts"],
+        )
 
     def test_update_task_output_configuration_valid_s3_configuration_executes_queries(
         self,

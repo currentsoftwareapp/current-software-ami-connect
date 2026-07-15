@@ -25,7 +25,10 @@ from amiadapters.adapters.subeca import (
 )
 from amiadapters.configuration.env import set_global_aws_profile, set_global_aws_region
 from amiadapters.config import AMIAdapterConfiguration
-from amiadapters.configuration.models import MeterAlertConfiguration
+from amiadapters.configuration.models import (
+    AccountHighUsageThreshold,
+    MeterAlertConfiguration,
+)
 from amiadapters.models import (
     DataclassJSONEncoder,
     GeneralMeter,
@@ -579,6 +582,167 @@ class TestSnowflakeDailyUsageThresholdAlerts(BaseSnowflakeIntegrationTestCase):
         )
 
         self._assert_num_rows(self.test_meter_alerts_table, 1)
+
+
+class TestSnowflakeHighDailyUsageForContactPersonAlerts(
+    BaseSnowflakeIntegrationTestCase
+):
+
+    def setUp(self):
+        self.row_active_from = datetime.datetime.now(tz=pytz.UTC)
+        self.now = datetime.datetime(2024, 1, 10, 12, 0, tzinfo=pytz.UTC)
+        self.cs.execute(
+            f"CREATE OR REPLACE TEMPORARY TABLE {self.test_meters_table} LIKE meters;"
+        )
+        self.cs.execute(
+            f"CREATE OR REPLACE TEMPORARY TABLE {self.test_readings_table} LIKE readings;"
+        )
+        self.cs.execute(
+            f"CREATE OR REPLACE TEMPORARY TABLE {self.test_meter_alerts_table} LIKE meter_alerts;"
+        )
+
+    def _set_thresholds(self, thresholds):
+        # Reset the shared meter alert config to only carry the per-device account
+        # thresholds this test cares about.
+        self.snowflake_sink.meter_alerts = MeterAlertConfiguration(
+            daily_high_usage_threshold=None,
+            daily_high_usage_unit=None,
+            account_level_daily_high_usage_thresholds=thresholds,
+        )
+
+    def test_alert_triggers_for_device_over_its_account_threshold(self):
+        self._assert_num_rows(self.test_meter_alerts_table, 0)
+        device_id = "account_threshold_device"
+        # Each hourly read is 100 CF, so two full days is 2400 CF/day, well over the 500 CF threshold.
+        start_streak = self.now - datetime.timedelta(days=7)
+        self._insert_reading_streak(device_id, start_streak, 24 * 2, 100)
+
+        self._set_thresholds(
+            {device_id: AccountHighUsageThreshold(threshold=500, unit="CF")}
+        )
+
+        self.snowflake_sink._upsert_account_level_daily_usage_threshold_alerts(
+            self.conn,
+            start_streak - datetime.timedelta(days=1),
+            self.now,
+            org_id="org1",
+            meter_alerts_table_name=self.test_meter_alerts_table,
+            readings_table_name=self.test_readings_table,
+        )
+
+        self._assert_num_rows(self.test_meter_alerts_table, 1)
+        self.cs.execute(
+            f"SELECT alert_type, start_time, source FROM {self.test_meter_alerts_table}"
+        )
+        alert = self.cs.fetchone()
+        self.assertEqual(alert[0], "high_daily_usage_for_contact_person")
+        self.assertEqual(
+            alert[1], start_streak.replace(hour=0, minute=0, second=0, microsecond=0)
+        )
+        self.assertEqual(alert[2], "Current")
+
+    def test_no_alert_for_device_without_configured_threshold(self):
+        self._assert_num_rows(self.test_meter_alerts_table, 0)
+        device_with_threshold = "has_threshold"
+        device_without_threshold = "no_threshold"
+
+        start_streak = self.now - datetime.timedelta(days=7)
+        # Both devices have identical high usage
+        self._insert_reading_streak(device_with_threshold, start_streak, 24 * 2, 100)
+        self._insert_reading_streak(device_without_threshold, start_streak, 24 * 2, 100)
+
+        # Only one device has an account threshold configured
+        self._set_thresholds(
+            {device_with_threshold: AccountHighUsageThreshold(threshold=500, unit="CF")}
+        )
+
+        self.snowflake_sink._upsert_account_level_daily_usage_threshold_alerts(
+            self.conn,
+            start_streak - datetime.timedelta(days=1),
+            self.now,
+            org_id="org1",
+            meter_alerts_table_name=self.test_meter_alerts_table,
+            readings_table_name=self.test_readings_table,
+        )
+
+        # Only the device with a configured threshold should produce an alert
+        self._assert_num_rows(self.test_meter_alerts_table, 1)
+        self.cs.execute(f"SELECT device_id FROM {self.test_meter_alerts_table}")
+        self.assertEqual(self.cs.fetchone()[0], device_with_threshold)
+
+    def test_each_device_compared_against_its_own_threshold(self):
+        self._assert_num_rows(self.test_meter_alerts_table, 0)
+        over_device = "over_device"
+        under_device = "under_device"
+
+        start_streak = self.now - datetime.timedelta(days=7)
+        # Both devices use 2400 CF/day (24 * 100)
+        self._insert_reading_streak(over_device, start_streak, 24 * 2, 100)
+        self._insert_reading_streak(under_device, start_streak, 24 * 2, 100)
+
+        # over_device's threshold is exceeded; under_device's threshold is far above its usage
+        self._set_thresholds(
+            {
+                over_device: AccountHighUsageThreshold(threshold=500, unit="CF"),
+                under_device: AccountHighUsageThreshold(threshold=100000, unit="CF"),
+            }
+        )
+
+        self.snowflake_sink._upsert_account_level_daily_usage_threshold_alerts(
+            self.conn,
+            start_streak - datetime.timedelta(days=1),
+            self.now,
+            org_id="org1",
+            meter_alerts_table_name=self.test_meter_alerts_table,
+            readings_table_name=self.test_readings_table,
+        )
+
+        self._assert_num_rows(self.test_meter_alerts_table, 1)
+        self.cs.execute(f"SELECT device_id FROM {self.test_meter_alerts_table}")
+        self.assertEqual(self.cs.fetchone()[0], over_device)
+
+    def test_threshold_unit_is_converted_to_cf(self):
+        self._assert_num_rows(self.test_meter_alerts_table, 0)
+        device_id = "ccf_threshold_device"
+
+        start_streak = self.now - datetime.timedelta(days=7)
+        # 2400 CF/day of usage. A 30 CCF threshold is 3000 CF, so usage is UNDER the threshold
+        # and no alert should fire. This proves the unit is converted before comparison.
+        self._insert_reading_streak(device_id, start_streak, 24 * 2, 100)
+
+        self._set_thresholds(
+            {device_id: AccountHighUsageThreshold(threshold=30, unit="CCF")}
+        )
+
+        self.snowflake_sink._upsert_account_level_daily_usage_threshold_alerts(
+            self.conn,
+            start_streak - datetime.timedelta(days=1),
+            self.now,
+            org_id="org1",
+            meter_alerts_table_name=self.test_meter_alerts_table,
+            readings_table_name=self.test_readings_table,
+        )
+
+        self._assert_num_rows(self.test_meter_alerts_table, 0)
+
+    def test_no_alerts_created_when_no_thresholds_configured(self):
+        self._assert_num_rows(self.test_meter_alerts_table, 0)
+        device_id = "high_usage_device"
+        start_streak = self.now - datetime.timedelta(days=7)
+        self._insert_reading_streak(device_id, start_streak, 24 * 2, 100)
+
+        self._set_thresholds({})
+
+        self.snowflake_sink._upsert_account_level_daily_usage_threshold_alerts(
+            self.conn,
+            start_streak - datetime.timedelta(days=1),
+            self.now,
+            org_id="org1",
+            meter_alerts_table_name=self.test_meter_alerts_table,
+            readings_table_name=self.test_readings_table,
+        )
+
+        self._assert_num_rows(self.test_meter_alerts_table, 0)
 
 
 class TestSnowflakeContinuousFlowAlerts(BaseSnowflakeIntegrationTestCase):

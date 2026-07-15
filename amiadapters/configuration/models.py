@@ -1,5 +1,5 @@
 from abc import ABC
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from enum import Enum
 import json
@@ -56,6 +56,20 @@ class NotificationsConfiguration:
     on_failure_sns_arn: str  # SNS Topic ARN for notifications when DAGs fail
 
 
+@dataclass(frozen=True)
+class AccountHighUsageThreshold:
+    """
+    A high daily usage threshold set on an account in the utility
+    billing app. Unlike the organization-wide threshold, this threshold applies only to the
+    devices associated with that account. It is resolved down to individual devices during
+    configuration load (via the Account -> Location -> Meter join in the utility billing
+    database).
+    """
+
+    threshold: float
+    unit: str
+
+
 @dataclass
 class MeterAlertConfiguration:
     """
@@ -64,6 +78,11 @@ class MeterAlertConfiguration:
 
     daily_high_usage_threshold: float
     daily_high_usage_unit: str
+    # Per-account high daily usage thresholds, keyed by the device_id they apply to.
+    # Empty when no account has configured a threshold.
+    account_level_daily_high_usage_thresholds: Dict[str, AccountHighUsageThreshold] = (
+        field(default_factory=dict)
+    )
 
 
 @dataclass

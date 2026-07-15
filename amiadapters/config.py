@@ -23,6 +23,7 @@ from amiadapters.configuration.base import (
 from amiadapters.configuration.models import (
     BackfillConfiguration,
     ConfiguredStorageSink,
+    AccountHighUsageThreshold,
     IntermediateOutputType,
     LocalIntermediateOutputControllerConfiguration,
     MeterAlertConfiguration,
@@ -219,6 +220,15 @@ class AMIAdapterConfiguration:
                 daily_high_usage_unit=this_meter_alerts_config.get(
                     "daily_high_usage_unit"
                 ),
+                account_level_daily_high_usage_thresholds={
+                    t["device_id"]: AccountHighUsageThreshold(
+                        threshold=t["threshold"],
+                        unit=t["unit"],
+                    )
+                    for t in this_meter_alerts_config.get(
+                        "account_level_daily_high_usage_thresholds", []
+                    )
+                },
             )
 
             # Join any sinks tied to this source
