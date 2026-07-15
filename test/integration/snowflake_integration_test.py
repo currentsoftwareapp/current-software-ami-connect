@@ -602,7 +602,7 @@ class TestSnowflakeHighDailyUsageForContactPersonAlerts(
         )
 
     def _set_thresholds(self, thresholds):
-        # Reset the shared meter alert config to only carry the per-device (contact person)
+        # Reset the shared meter alert config to only carry the per-device account
         # thresholds this test cares about.
         self.snowflake_sink.meter_alerts = MeterAlertConfiguration(
             daily_high_usage_threshold=None,
@@ -610,9 +610,9 @@ class TestSnowflakeHighDailyUsageForContactPersonAlerts(
             account_level_daily_high_usage_thresholds=thresholds,
         )
 
-    def test_alert_triggers_for_device_over_its_contact_person_threshold(self):
+    def test_alert_triggers_for_device_over_its_account_threshold(self):
         self._assert_num_rows(self.test_meter_alerts_table, 0)
-        device_id = "contact_person_device"
+        device_id = "account_threshold_device"
         # Each hourly read is 100 CF, so two full days is 2400 CF/day, well over the 500 CF threshold.
         start_streak = self.now - datetime.timedelta(days=7)
         self._insert_reading_streak(device_id, start_streak, 24 * 2, 100)
@@ -651,7 +651,7 @@ class TestSnowflakeHighDailyUsageForContactPersonAlerts(
         self._insert_reading_streak(device_with_threshold, start_streak, 24 * 2, 100)
         self._insert_reading_streak(device_without_threshold, start_streak, 24 * 2, 100)
 
-        # Only one device has a contact person threshold configured
+        # Only one device has an account threshold configured
         self._set_thresholds(
             {device_with_threshold: AccountHighUsageThreshold(threshold=500, unit="CF")}
         )

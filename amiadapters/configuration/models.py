@@ -55,7 +55,7 @@ class NotificationsConfiguration:
 @dataclass(frozen=True)
 class AccountHighUsageThreshold:
     """
-    A high daily usage threshold set on an account (by a contact person) in the utility
+    A high daily usage threshold set on an account in the utility
     billing app. Unlike the organization-wide threshold, this threshold applies only to the
     devices associated with that account. It is resolved down to individual devices during
     configuration load (via the Account -> Location -> Meter join in the utility billing

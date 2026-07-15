@@ -847,7 +847,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
     ):
         """
         Detects devices whose total daily usage exceeds a threshold configured on
-        the device's account (by a contact person in the Customer Portal) for at least 1 day.
+        the device's account for at least 1 day.
 
         It mirrors _upsert_daily_usage_threshold_alerts, except the threshold is per-device
         rather than a single organization-wide value. each account can set its own threshold that applies across all devices
@@ -858,7 +858,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
 
         if not thresholds:
             logger.info(
-                f"Skipping high daily usage for contact person alert detection for org_id {org_id} "
+                f"Skipping account-level high daily usage alert detection for org_id {org_id} "
                 f"because no account thresholds are configured."
             )
             return
@@ -877,7 +877,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
         if not threshold_cf_by_device:
             logger.info(
                 f"No valid account thresholds after conversion for org_id {org_id}, "
-                f"skipping high daily usage for contact person alert detection."
+                f"skipping account-level high daily usage alert detection."
             )
             return
 
@@ -888,7 +888,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
         )
 
         # Stage the per-device thresholds so we can join them to daily usage in SQL.
-        threshold_stage_table = "stage_contact_person_high_usage_thresholds"
+        threshold_stage_table = "stage_account_high_usage_thresholds"
         conn.cursor().execute(f"""
             CREATE OR REPLACE TEMPORARY TABLE {threshold_stage_table} (
                 ORG_ID VARCHAR(16777216) NOT NULL,
@@ -1024,7 +1024,7 @@ class SnowflakeStorageSink(BaseAMIStorageSink):
             .fetchone()[0]
         )
         logger.info(
-            f"Detected {num_alerts_detected} high daily usage for contact person alerts in staging table for org_id {org_id}. Merging into {meter_alerts_table_name} table."
+            f"Detected {num_alerts_detected} account-level high daily usage alerts in staging table for org_id {org_id}. Merging into {meter_alerts_table_name} table."
         )
         self._merge_alerts(
             conn,

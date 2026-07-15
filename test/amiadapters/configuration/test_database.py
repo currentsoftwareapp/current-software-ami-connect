@@ -232,7 +232,7 @@ class TestDatabase(BaseTestCase):
         self.assertEqual(expected["notifications"], notifications)
         self.assertEqual(expected["backfills"], backfills)
 
-    def test_merge_attaches_contact_person_thresholds_to_matching_org(self):
+    def test_merge_attaches_account_thresholds_to_matching_org(self):
         sources = [
             {"org_id": "my_beacon_utility"},
             {"org_id": "my_subeca_utility"},
@@ -282,7 +282,7 @@ class TestDatabase(BaseTestCase):
         beacon = next(s for s in merged if s["org_id"] == "my_beacon_utility")
         self.assertEqual(beacon["meter_alerts"]["daily_high_usage_threshold"], 100)
         self.assertEqual(
-            beacon["meter_alerts"]["high_daily_usage_for_contact_person_thresholds"],
+            beacon["meter_alerts"]["account_level_daily_high_usage_thresholds"],
             [
                 {"device_id": "device_a", "threshold": 50, "unit": "CCF"},
                 {"device_id": "device_b", "threshold": 25, "unit": "CF"},
@@ -292,7 +292,7 @@ class TestDatabase(BaseTestCase):
         # Subeca's only account threshold was missing a value, so no key is added
         subeca = next(s for s in merged if s["org_id"] == "my_subeca_utility")
         self.assertNotIn(
-            "high_daily_usage_for_contact_person_thresholds", subeca["meter_alerts"]
+            "account_level_daily_high_usage_thresholds", subeca["meter_alerts"]
         )
 
     def test_merge_without_account_thresholds_leaves_meter_alerts_unchanged(self):
@@ -308,7 +308,7 @@ class TestDatabase(BaseTestCase):
         merged = _merge_snowflake_and_utility_billing_settings(sources, ub_sources)
 
         self.assertNotIn(
-            "high_daily_usage_for_contact_person_thresholds",
+            "account_level_daily_high_usage_thresholds",
             merged[0]["meter_alerts"],
         )
 

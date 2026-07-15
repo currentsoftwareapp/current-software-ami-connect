@@ -224,7 +224,7 @@ class AMIAdapterConfiguration:
                         unit=t["unit"],
                     )
                     for t in this_meter_alerts_config.get(
-                        "high_daily_usage_for_contact_person_thresholds", []
+                        "account_level_daily_high_usage_thresholds", []
                     )
                 },
             )

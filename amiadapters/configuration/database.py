@@ -204,8 +204,8 @@ def _merge_snowflake_and_utility_billing_settings(
                     ],
                 }
 
-        # Per-account (contact person) high daily usage thresholds for this org's devices
-        contact_person_thresholds = [
+        # Per-account high daily usage thresholds for this org's devices
+        account_thresholds = [
             {
                 "device_id": t["device_id"],
                 "threshold": t["threshold"],
@@ -217,10 +217,10 @@ def _merge_snowflake_and_utility_billing_settings(
             and t.get("threshold") is not None
             and t.get("unit")
         ]
-        if contact_person_thresholds:
+        if account_thresholds:
             source["meter_alerts"][
-                "high_daily_usage_for_contact_person_thresholds"
-            ] = contact_person_thresholds
+                "account_level_daily_high_usage_thresholds"
+            ] = account_thresholds
     return snowflake_sources
 
 
