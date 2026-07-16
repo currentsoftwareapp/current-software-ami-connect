@@ -116,33 +116,6 @@ resource "aws_iam_role_policy_attachment" "airflow_attach_sns" {
   policy_arn = aws_iam_policy.airflow_sns_publish.arn
 }
 
-resource "aws_iam_policy" "sqs_access_policy" {
-  name        = "ami-connect-sqs-access"
-  description = "Allow EC2 to send and receive messages from SQS queue"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "sqs:SendMessage",
-          "sqs:ReceiveMessage",
-          "sqs:DeleteMessage",
-          "sqs:GetQueueUrl",
-          "sqs:GetQueueAttributes"
-        ]
-        Resource = aws_sqs_queue.ami_connect_dag_event_queue.arn
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "attach_sqs_policy" {
-  role       = aws_iam_role.ami_connect_pipeline.name
-  policy_arn = aws_iam_policy.sqs_access_policy.arn
-}
-
 resource "aws_iam_role_policy_attachment" "attach_ssm_policy" {
   role       = aws_iam_role.ami_connect_pipeline.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
