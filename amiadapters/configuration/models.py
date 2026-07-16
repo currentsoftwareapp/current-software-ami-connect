@@ -275,6 +275,15 @@ class Beacon360Secrets(SourceSecretsBase):
 
 
 @dataclass
+class MetronSecrets(SourceSecretsBase):
+    username: str
+    password: str
+
+    def validate(self) -> None:
+        self._require("username", "password")
+
+
+@dataclass
 class MetersenseSecrets(SourceSecretsBase):
     ssh_tunnel_private_key: str
     ssh_tunnel_username: str
@@ -649,6 +658,13 @@ class DevSourceConfig(SourceConfigBase):
 
 
 @dataclass(frozen=True)
+class MetronSourceConfig(SourceConfigBase):
+    # Metron's WaterScope API needs no source-specific config beyond the base fields;
+    # credentials are supplied via secrets.
+    pass
+
+
+@dataclass(frozen=True)
 class ZennerSourceConfig(SourceConfigBase):
     # StealthAMI utility identifier sent in the `utility` header,
     # e.g. "zennerapi.valencia_heights_ca.2017".
@@ -709,6 +725,12 @@ class ConfiguredAMISourceTypes(Enum):
         "metersense",
         MetersenseSourceConfig,
         MetersenseSecrets,
+        [ConfiguredStorageSinkType.SNOWFLAKE],
+    )
+    METRON = SourceSchema(
+        "metron",
+        MetronSourceConfig,
+        MetronSecrets,
         [ConfiguredStorageSinkType.SNOWFLAKE],
     )
     NEPTUNE = SourceSchema(

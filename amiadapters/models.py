@@ -148,3 +148,4 @@ class MeterAlertSource:
     CURRENT = "Current"
     BEACON_360 = "Beacon 360"
     SUBECA = "Subeca"
+    METRON = "Metron"

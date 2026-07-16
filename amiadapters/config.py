@@ -11,6 +11,7 @@ from amiadapters.adapters.base import BaseAMIAdapter
 from amiadapters.adapters.beacon import Beacon360Adapter
 from amiadapters.adapters.dev_adapter import DevAdapter
 from amiadapters.adapters.metersense import MetersenseAdapter
+from amiadapters.adapters.metron import MetronAdapter
 from amiadapters.adapters.sentryx import SentryxAdapter
 from amiadapters.adapters.subeca import SubecaAdapter
 from amiadapters.adapters.xylem_moulton_niguel import XylemMoultonNiguelAdapter
@@ -368,6 +369,20 @@ class AMIAdapterConfiguration:
                             database_user=source.secrets.database_user,
                             database_password=source.secrets.database_password,
                             configured_sinks=source.sinks,
+                        )
+                    )
+                case ConfiguredAMISourceTypes.METRON.value.type:
+                    adapters.append(
+                        MetronAdapter(
+                            source.org_id,
+                            source.timezone,
+                            self._pipeline_configuration,
+                            source.secrets.username,
+                            source.secrets.password,
+                            source.task_output_controller,
+                            source.meter_alerts,
+                            source.metrics,
+                            source.sinks,
                         )
                     )
                 case ConfiguredAMISourceTypes.NEPTUNE.value.type:
