@@ -9,6 +9,7 @@ import yaml
 from amiadapters.adapters.aclara import AclaraAdapter
 from amiadapters.adapters.base import BaseAMIAdapter
 from amiadapters.adapters.beacon import Beacon360Adapter
+from amiadapters.adapters.dev_adapter import DevAdapter
 from amiadapters.adapters.metersense import MetersenseAdapter
 from amiadapters.adapters.sentryx import SentryxAdapter
 from amiadapters.adapters.subeca import SubecaAdapter
@@ -405,6 +406,18 @@ class AMIAdapterConfiguration:
                             source.metrics,
                             source.sinks,
                             utility_name=source.utility_name,
+                        )
+                    )
+                case ConfiguredAMISourceTypes.DEV.value.type:
+                    adapters.append(
+                        DevAdapter(
+                            source.org_id,
+                            source.timezone,
+                            self._pipeline_configuration,
+                            source.task_output_controller,
+                            source.meter_alerts,
+                            source.metrics,
+                            source.sinks,
                         )
                     )
                 case ConfiguredAMISourceTypes.SUBECA.value.type:

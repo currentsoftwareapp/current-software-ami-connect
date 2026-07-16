@@ -302,6 +302,14 @@ class SubecaSecrets(SourceSecretsBase):
 
 
 @dataclass
+class DevSecrets(SourceSecretsBase):
+    # The dev adapter needs no real credentials, since it hardcodes its data.
+    # A single optional field lets a secret satisfy the framework's "a secret
+    # must exist for every source" check with a throwaway value.
+    note: str = None
+
+
+@dataclass
 class ZennerSecrets(SourceSecretsBase):
     username: str
     password: str
@@ -634,6 +642,13 @@ class SubecaSourceConfig(SourceConfigBase):
 
 
 @dataclass(frozen=True)
+class DevSourceConfig(SourceConfigBase):
+    # No source-specific configuration. The dev adapter hardcodes its meters
+    # and reads, so it only needs the fields on SourceConfigBase.
+    pass
+
+
+@dataclass(frozen=True)
 class ZennerSourceConfig(SourceConfigBase):
     # StealthAMI utility identifier sent in the `utility` header,
     # e.g. "zennerapi.valencia_heights_ca.2017".
@@ -730,6 +745,15 @@ class ConfiguredAMISourceTypes(Enum):
         "xylem_sensus",
         XylemSensusSourceConfig,
         XylemSensusSecrets,
+        [ConfiguredStorageSinkType.SNOWFLAKE],
+    )
+    # Test-only source that produces hardcoded meters and reads. Not a real
+    # AMI provider — used to exercise the pipeline (e.g. post-processing) end
+    # to end without hitting an external system.
+    DEV = SourceSchema(
+        "dev",
+        DevSourceConfig,
+        DevSecrets,
         [ConfiguredStorageSinkType.SNOWFLAKE],
     )
 
