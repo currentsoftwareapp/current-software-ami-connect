@@ -254,7 +254,7 @@ class TestFromDatabase(BaseTestCase):
 
     @patch("amiadapters.config.get_secrets")
     @patch("amiadapters.config.create_snowflake_from_secrets")
-    @patch("amiadapters.config.create_utility_billing_settings_connection_from_env")
+    @patch("amiadapters.config.create_utility_billing_settings_connection_from_secrets")
     @patch("amiadapters.config.get_configuration")
     def test_from_database__builds_configuration(
         self,
@@ -283,7 +283,7 @@ class TestFromDatabase(BaseTestCase):
 
     @patch("amiadapters.config.get_secrets")
     @patch("amiadapters.config.create_snowflake_from_secrets")
-    @patch("amiadapters.config.create_utility_billing_settings_connection_from_env")
+    @patch("amiadapters.config.create_utility_billing_settings_connection_from_secrets")
     @patch("amiadapters.config.get_configuration")
     def test_from_database__skips_unrecognized_source_type(
         self,
@@ -326,7 +326,7 @@ class TestFromDatabase(BaseTestCase):
 
     @patch("amiadapters.config.get_secrets")
     @patch("amiadapters.config.create_snowflake_from_secrets")
-    @patch("amiadapters.config.create_utility_billing_settings_connection_from_env")
+    @patch("amiadapters.config.create_utility_billing_settings_connection_from_secrets")
     @patch("amiadapters.config.get_configuration")
     def test_from_database__without_utility_billing_connection(
         self,

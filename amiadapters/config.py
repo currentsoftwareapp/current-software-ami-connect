@@ -20,7 +20,7 @@ from amiadapters.adapters.zenner import ZennerAdapter
 from amiadapters.alerts.base import AmiConnectDagFailureNotifier
 from amiadapters.configuration.base import (
     create_snowflake_from_secrets,
-    create_utility_billing_settings_connection_from_env,
+    create_utility_billing_settings_connection_from_secrets,
 )
 from amiadapters.configuration.models import (
     BackfillConfiguration,
@@ -124,11 +124,11 @@ class AMIAdapterConfiguration:
         # Get all secrets, including Snowflake creds used to get non-secret configuration
         secrets = get_secrets()
         connection = create_snowflake_from_secrets(secrets)
-        utility_billing_connection_url = (
-            create_utility_billing_settings_connection_from_env()
+        utility_billing_connection = (
+            create_utility_billing_settings_connection_from_secrets(secrets)
         )
         sources, sinks, pipeline_configuration, notifications, backfills = (
-            get_configuration(connection, utility_billing_connection_url)
+            get_configuration(connection, utility_billing_connection)
         )
 
         return cls._make_instance(

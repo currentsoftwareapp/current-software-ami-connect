@@ -12,7 +12,7 @@ from amiadapters.configuration.models import (
 logger = logging.getLogger(__name__)
 
 
-def get_configuration(snowflake_connection, utility_billing_connection_url) -> Tuple[
+def get_configuration(snowflake_connection, utility_billing_connection) -> Tuple[
     List[Dict],
     List[Dict],
     PipelineConfiguration,
@@ -30,15 +30,15 @@ def get_configuration(snowflake_connection, utility_billing_connection_url) -> T
 
     ub_org_usage_thresholds = []
     ub_account_usage_thresholds = []
-    if utility_billing_connection_url:
+    if utility_billing_connection:
         ub_org_usage_thresholds = (
             _get_utility_billing_org_wide_usage_threshold_from_postgres(
-                utility_billing_connection_url
+                utility_billing_connection
             )
         )
         ub_account_usage_thresholds = (
             _get_utility_billing_account_thresholds_from_postgres(
-                utility_billing_connection_url
+                utility_billing_connection
             )
         )
 
