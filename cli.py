@@ -758,7 +758,7 @@ def remove_secret(
     """
     if secret_type not in [st.value for st in SecretType]:
         raise typer.BadParameter(
-            f'secret_type must be one of {[st.value for st in SecretType]}'
+            f"secret_type must be one of {[st.value for st in SecretType]}"
         )
     if not secret_name:
         raise typer.BadParameter("secret_name is required")

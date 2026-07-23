@@ -13,9 +13,7 @@ class TestPipelineSecretsBase(BaseTestCase):
             {"connection_url": "postgresql://user:pass@host:5432/db"},
         )
         self.assertIsInstance(secret, UtilityBillingSecrets)
-        self.assertEqual(
-            "postgresql://user:pass@host:5432/db", secret.connection_url
-        )
+        self.assertEqual("postgresql://user:pass@host:5432/db", secret.connection_url)
 
     def test_from_dict_raises_on_unknown_name(self):
         with self.assertRaises(ValueError):

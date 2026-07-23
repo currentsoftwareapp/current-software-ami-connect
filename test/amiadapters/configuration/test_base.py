@@ -27,10 +27,8 @@ class TestCreateUtilityBillingSettingsConnectionFromSecrets(BaseTestCase):
     def test_returns_none_when_secret_absent(self, mock_connect):
         for secrets in ({}, {"pipeline": {}}, {"pipeline": {"utility_billing": {}}}):
             with self.subTest(secrets=secrets):
-                result = (
-                    base.create_utility_billing_settings_connection_from_secrets(
-                        secrets
-                    )
+                result = base.create_utility_billing_settings_connection_from_secrets(
+                    secrets
                 )
                 self.assertIsNone(result)
         mock_connect.assert_not_called()
