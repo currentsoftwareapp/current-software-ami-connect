@@ -662,7 +662,7 @@ def update_secret(
     secret_name: Annotated[
         str,
         typer.Argument(
-            help="Name of source or sink that uses these secrets as specified in the configuration. For a pipeline secret, the name of the pipeline secret, e.g. 'utility_billing'.",
+            help="Name of secret (e.g. source name, sink name, or pipeline secret name). Ex: 'current_aeneas', 'current_snowflake', or for a pipeline secret 'utility_billing'.",
         ),
     ],
     sink_type: Annotated[
@@ -680,7 +680,7 @@ def update_secret(
     pipeline: Annotated[
         bool,
         typer.Option(
-            help="Set for a pipeline-wide secret (e.g. 'utility_billing'). Uses secret_name to select the secret."
+            help="True if updating a pipeline-wide secret. Use secret_name to select the secret."
         ),
     ] = False,
     profile: ANNOTATION__PROFILE = None,
@@ -700,7 +700,7 @@ def update_secret(
         raise typer.BadParameter("secret_name is required")
     if sum(bool(x) for x in (sink_type, source_type, pipeline)) != 1:
         raise typer.BadParameter(
-            "Must specify exactly one of sink_type, source_type, or --pipeline."
+            "Must specify exactly one  of sink_type, source_type, or pipeline."
         )
 
     # Set secret type based on which type argument is provided
