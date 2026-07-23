@@ -54,8 +54,3 @@ variable "alert_emails" {
   description = "List of emails to subscribe to the Airflow SNS topic for Aiflow alerts"
   type        = list(string)
 }
-
-variable "utility_billing_connection_url" {
-  description = "Connection URL for the utility billing Postgres database"
-  type        = string
-}
