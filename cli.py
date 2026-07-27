@@ -39,11 +39,11 @@ from amiadapters.configuration.base import (
 from amiadapters.configuration.env import (
     set_global_aws_profile,
     set_global_aws_region,
-    set_global_utility_billing_connection_url,
 )
 from amiadapters.configuration.models import (
     IntermediateOutputType,
     MetricsBackendType,
+    PipelineSecretsBase,
     SinkSecretsBase,
     SourceSecretsBase,
 )
@@ -83,7 +83,6 @@ def sets_environment_from_profile(func):
         if kwargs.get("local") is None:
             set_global_aws_region()
             set_global_aws_profile(kwargs.get("profile"))
-            set_global_utility_billing_connection_url()
         return func(*args, **kwargs)
 
     return wrapper
@@ -663,7 +662,7 @@ def update_secret(
     secret_name: Annotated[
         str,
         typer.Argument(
-            help="Name of source or sink that uses these secrets as specified in the configuration.",
+            help="Name of secret (e.g. source name, sink name, or pipeline secret name). Ex: 'current_aeneas', 'current_snowflake', or for a pipeline secret 'utility_billing'.",
         ),
     ],
     sink_type: Annotated[
@@ -678,6 +677,12 @@ def update_secret(
             help="Type of source, e.g. 'subeca'. Must be specified if secret_type is 'source'."
         ),
     ] = None,
+    pipeline: Annotated[
+        bool,
+        typer.Option(
+            help="True if updating a pipeline-wide secret. Use secret_name to select the secret."
+        ),
+    ] = False,
     profile: ANNOTATION__PROFILE = None,
     # Type-specific secrets
     secrets: Annotated[
@@ -693,15 +698,18 @@ def update_secret(
     """
     if not secret_name:
         raise typer.BadParameter("secret_name is required")
-    if sink_type and source_type:
+    if sum(bool(x) for x in (sink_type, source_type, pipeline)) != 1:
         raise typer.BadParameter(
-            "Can only specify one of sink_type or source_type, not both."
+            "Must specify exactly one  of sink_type, source_type, or pipeline."
         )
-    if not sink_type and not source_type:
-        raise typer.BadParameter("Must specify one of sink_type or source_type.")
 
     # Set secret type based on which type argument is provided
-    secret_type = SecretType.SOURCES.value if source_type else SecretType.SINKS.value
+    if source_type:
+        secret_type = SecretType.SOURCES.value
+    elif sink_type:
+        secret_type = SecretType.SINKS.value
+    else:
+        secret_type = SecretType.PIPELINE.value
 
     # Parse the key=value pairs into a dictionary. These are the type-specific secrets.
     new_secrets = parse_kv_pairs(secrets)
@@ -722,8 +730,10 @@ def update_secret(
     # Create the appropriate secrets object based on secret type and adapter type
     if secret_type == SecretType.SOURCES.value:
         secrets = SourceSecretsBase.from_dict(source_type, new_secrets)
-    else:
+    elif secret_type == SecretType.SINKS.value:
         secrets = SinkSecretsBase.from_dict(sink_type, new_secrets)
+    else:
+        secrets = PipelineSecretsBase.from_dict(secret_name, new_secrets)
 
     update_secret_configuration(secret_type, secret_name, secrets)
 
@@ -733,12 +743,12 @@ def update_secret(
 def remove_secret(
     secret_type: Annotated[
         str,
-        typer.Argument(help="Type of secret. Choices: sources, sinks"),
+        typer.Argument(help="Type of secret. Choices: sources, sinks, pipeline"),
     ],
     secret_name: Annotated[
         str,
         typer.Argument(
-            help="Name of source or sink that uses these secrets as specified in the configuration."
+            help="Name of source or sink that uses these secrets as specified in the configuration. For a pipeline secret, the name of the pipeline secret, e.g. 'utility_billing'."
         ),
     ],
     profile: ANNOTATION__PROFILE = None,
@@ -746,8 +756,10 @@ def remove_secret(
     """
     Removes a secret. Matches on secret_type+secret_name.
     """
-    if secret_type not in [SecretType.SOURCES.value, SecretType.SINKS.value]:
-        raise typer.BadParameter('secret_type must be one of ["sources", "sinks"]')
+    if secret_type not in [st.value for st in SecretType]:
+        raise typer.BadParameter(
+            f"secret_type must be one of {[st.value for st in SecretType]}"
+        )
     if not secret_name:
         raise typer.BadParameter("secret_name is required")
     remove_secret_configuration(secret_type, secret_name)

@@ -8,7 +8,6 @@ import snowflake.connector
 
 from amiadapters.configuration import database
 from amiadapters.configuration import secrets
-from amiadapters.configuration.env import get_global_utility_billing_connection_url
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +16,7 @@ def get_configuration(secrets: dict) -> Tuple:
     logger.info(f"Getting configuration from database.")
     snowflake_connection = create_snowflake_from_secrets(secrets)
     utility_billing_settings_connection = (
-        create_utility_billing_settings_connection_from_env()
+        create_utility_billing_settings_connection_from_secrets(secrets)
     )
     return database.get_configuration(
         snowflake_connection, utility_billing_settings_connection
@@ -191,9 +190,11 @@ def create_utility_billing_settings_connection(connection_url: str):
     return psycopg2.connect(connection_url)
 
 
-def create_utility_billing_settings_connection_from_env():
-    connection_url = get_global_utility_billing_connection_url()
-    if not (connection_url):
+def create_utility_billing_settings_connection_from_secrets(secrets: dict):
+    connection_url = (
+        secrets.get("pipeline", {}).get("utility_billing", {}).get("connection_url")
+    )
+    if not connection_url:
         logger.info(
             "No credentials found to connect to Utility Billing settings, skipping."
         )

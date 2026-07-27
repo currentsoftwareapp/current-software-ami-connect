@@ -153,7 +153,6 @@ The workflow reads the following secrets from the `production` environment (`Set
 | `AIRFLOW_DB_HOST` | RDS PostgreSQL endpoint (from Terraform output `airflow_db_host`) |
 | `AIRFLOW_DB_PASSWORD` | RDS database password (from Terraform output `airflow_db_password`) |
 | `AIRFLOW_SITE_URL` | Public URL of the Airflow site (from Terraform output `airflow_site_url`) |
-| `UTILITY_BILLING_CONNECTION_URL` | Postgres connection string for the utility billing app (from Terraform output `utility_billing_connection_url`) |
 | `AMI_CONNECT_NEPTUNE_REPO_URL` | SSH clone URL of the private Neptune adapter repo. Set to an empty string if not used. |
 
 Terraform output values can be found in `amideploy/configuration/current-output.json`.

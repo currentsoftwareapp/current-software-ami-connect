@@ -48,7 +48,6 @@ if [[ "${FULL_RESTART,,}" == "true" ]]; then
     # Regenerated each full restart, which is fine since all containers are recreated together.
     echo "AIRFLOW__API_AUTH__JWT_SECRET=$(openssl rand -hex 32)" >> .env
     echo "AMI_CONNECT__AIRFLOW_SITE_URL=$AMI_CONNECT__AIRFLOW_SITE_URL" >> .env
-    echo "AMI_CONNECT__UTILITY_BILLING_CONNECTION_URL=$AMI_CONNECT__UTILITY_BILLING_CONNECTION_URL" >> .env
 
     echo "📦 Building Docker image"
     cd "$BUILD_DIR"

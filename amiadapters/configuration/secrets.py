@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 class SecretType(Enum):
     SOURCES = "sources"
     SINKS = "sinks"
+    PIPELINE = "pipeline"
 
 
 def get_secrets() -> dict[str, dict]:

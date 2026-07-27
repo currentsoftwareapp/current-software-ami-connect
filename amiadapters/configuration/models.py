@@ -235,6 +235,40 @@ class SnowflakeSecrets(SinkSecretsBase):
         )
 
 
+class PipelineSecretsBase(SecretsBase):
+    """
+    Base class for pipeline-wide secrets dataclasses. These are secrets that
+    aren't tied to a single source or sink, but to the pipeline as a whole
+    (e.g. the Utility Billing settings database connection).
+    """
+
+    @classmethod
+    def from_dict(cls, name: str, raw_secret_config: dict) -> "PipelineSecretsBase":
+        if not raw_secret_config:
+            raise ValueError(f"Found no secrets for pipeline secret {name}")
+
+        match name:
+            case "utility_billing":
+                secret_cls = UtilityBillingSecrets
+            case _:
+                raise ValueError(f"Unrecognized pipeline secret {name}")
+
+        # Copy so we don't mutate caller data
+        kwargs = dict(raw_secret_config)
+        config = secret_cls(**kwargs)
+        config.validate()
+
+        return config
+
+
+@dataclass
+class UtilityBillingSecrets(PipelineSecretsBase):
+    connection_url: str
+
+    def validate(self) -> None:
+        self._require("connection_url")
+
+
 class SourceSecretsBase(SecretsBase):
     """
     Base class for AMI source secrets dataclasses.
