@@ -24,20 +24,32 @@
 #   - litellm:                                   1.82.6  -> 1.84.0
 #   - lxml:                                      6.0.2   -> 6.1.0
 #   - Mako:                                      1.3.11  -> 1.3.12
-#   - mistune:                                   3.2.0   -> 3.2.1
+#   - mistune:                                   3.2.0   -> 3.3.0  (see 2026-07-27 below)
 #   - msgpack:                                   1.1.2   -> 1.2.1
 #   - pyOpenSSL:                                 26.0.0  -> 26.2.0
 #   - PyJWT:                                     2.12.1  -> 2.13.0
-#   - pydantic-ai-slim:                          1.84.0  -> 1.99.0
+#   - pydantic-ai-slim:                          1.84.0  -> 1.102.0 (see 2026-07-27 below)
 #   - pydantic-settings:                         2.13.1  -> 2.14.2
 #   - python-multipart:                          0.0.26  -> 0.0.31
 #   - redshift_connector:                        2.1.13  -> 2.1.14
 #   - tornado:                                   6.5.5   -> 6.5.7
 #   - uv:                                        0.11.7  -> 0.11.15
 #   - zeep:                                      4.3.2   -> 4.3.3
-# KNOWN-UNFIXED (cannot be resolved on Airflow 3.2.1, left at upstream pin):
-#   - starlette (0.52.1): all advisory fixes require >=1.0, but
-#     apache-airflow-core caps starlette<1. Resolves on the next Airflow bump.
+# Dependabot CVE bumps (2026-07-27). Second round; each pin set to the lowest
+# version that clears every open advisory for that package. apache-airflow itself
+# is bumped 3.2.1 -> 3.2.2 in requirements.txt (patch release; not pinned here).
+#   - aiosmtplib:                                5.1.0   -> 5.1.1
+#   - apache-airflow-providers-fab:              3.6.1   -> 3.6.4  (also in requirements.txt)
+#   - apache-airflow-providers-google:           21.1.0  -> 22.0.0
+#   - mistune:                                   3.2.1   -> 3.3.0
+#   - pydantic-ai-slim:                          1.99.0  -> 1.102.0
+#   - soupsieve:                                 2.8.3   -> 2.8.4
+# Compatibility bumps required by the airflow 3.2.1 -> 3.2.2 patch (these match
+# upstream constraints-3.2.2; not CVE-driven on their own):
+#   - flask-appbuilder:                          5.2.0   -> 5.2.1  (fab 3.6.4 pins ==5.2.1)
+#   - starlette:                                 0.52.1  -> 1.1.0  (airflow-core 3.2.2 needs >=1.0.1)
+#
+# KNOWN-UNFIXED (left at upstream pin):
 #   - ecdsa (0.19.2): Minerva timing attack (GHSA-wj6h-64fc-37mp) is an upstream
 #     wontfix; no patched release exists.
 #
@@ -122,7 +134,7 @@ aiohttp==3.14.1
 aioitertools==0.13.0
 aiomysql==0.3.2
 aiosignal==1.4.0
-aiosmtplib==5.1.0
+aiosmtplib==5.1.1
 aiosqlite==0.21.0
 airbyte-api==0.53.0
 alembic==1.18.4
@@ -178,12 +190,12 @@ apache-airflow-providers-docker==4.5.5
 apache-airflow-providers-edge3==3.4.0
 apache-airflow-providers-elasticsearch==6.5.3
 apache-airflow-providers-exasol==4.10.2
-apache-airflow-providers-fab==3.6.1
+apache-airflow-providers-fab==3.6.4
 apache-airflow-providers-facebook==3.9.4
 apache-airflow-providers-ftp==3.14.3
 apache-airflow-providers-git==0.3.1
 apache-airflow-providers-github==2.11.2
-apache-airflow-providers-google==21.1.0
+apache-airflow-providers-google==22.0.0
 apache-airflow-providers-grpc==3.9.4
 apache-airflow-providers-hashicorp==4.5.2
 apache-airflow-providers-http==6.0.2
@@ -345,7 +357,7 @@ fastavro==1.12.1
 fastjsonschema==2.21.2
 fastuuid==0.14.0
 filelock==3.28.0
-flask-appbuilder==5.2.0
+flask-appbuilder==5.2.1
 flask-babel==4.0.0
 flower==2.0.1
 frozenlist==1.8.0
@@ -505,7 +517,7 @@ microsoft-kiota-authentication-azure==1.10.1
 microsoft-kiota-http==1.10.1
 microsoft-kiota-serialization-json==1.10.1
 microsoft-kiota-serialization-text==1.10.1
-mistune==3.2.1
+mistune==3.3.0
 mmh3==5.2.1
 more-itertools==11.0.2
 msal-extensions==1.3.1
@@ -598,7 +610,7 @@ pybreaker==1.4.1
 pycountry==26.2.16
 pycparser==3.0
 pycryptodome==3.23.0
-pydantic-ai-slim==1.99.0
+pydantic-ai-slim==1.102.0
 pydantic-extra-types==2.11.1
 pydantic-graph==1.84.0
 pydantic-settings==2.14.2
@@ -680,14 +692,14 @@ snowflake-connector-python==4.4.0
 snowflake-snowpark-python==1.49.0
 snowflake-sqlalchemy==1.9.0
 sortedcontainers==2.4.0
-soupsieve==2.8.3
+soupsieve==2.8.4
 spython==0.3.14
 sqlalchemy-bigquery==1.16.0
 sqlalchemy-spanner==1.17.3
 sqlalchemy_drill==1.1.10
 sqlparse==0.5.5
 stack-data==0.6.3
-starlette==0.52.1
+starlette==1.1.0
 statsd==4.0.1
 std-uritemplate==2.0.8
 strictyaml==1.7.3

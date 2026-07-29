@@ -15,14 +15,14 @@ python-dotenv==1.2.2
 # Installs with constraints for Airflow.
 # Keep --constraint on its own line so pip applies it globally; appended to a
 # package line it is silently ignored.
-# This is a LOCAL FORK of Apache's constraints-3.2.1/constraints-3.12.txt with three
-# deviations to address CVEs (urllib3 -> 2.7.0, amazon provider -> 9.28.0, idna ->
-# 3.15). See the header in that file for details and how to refresh it.
+# This is a LOCAL FORK of Apache's constraints-3.2.1/constraints-3.12.txt with
+# several deviations to address CVEs (e.g. urllib3, amazon provider, idna, mistune,
+# soupsieve). See the header in that file for the full list and how to refresh it.
 --constraint constraints-3.2.1.txt
-apache-airflow==3.2.1
+apache-airflow==3.2.2
 apache-airflow-providers-snowflake==6.12.1
 apache-airflow-providers-amazon==9.28.0
-apache-airflow-providers-fab==3.6.1
+apache-airflow-providers-fab==3.6.4
 apache-airflow-providers-standard==1.12.3
 
 # Running production Airflow
