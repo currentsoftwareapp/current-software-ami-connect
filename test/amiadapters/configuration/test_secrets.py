@@ -31,6 +31,45 @@ class TestSecrets(BaseTestCase):
         self.assertEqual(result["sources"]["my-source"]["token"], "abc")
 
     @patch("amiadapters.configuration.secrets._create_aws_secrets_manager_client")
+    def test_get_secrets_follows_pagination(self, mock_client_factory):
+        mock_client = MagicMock()
+        mock_client_factory.return_value = mock_client
+        # First page returns a NextToken, so get_secrets() must request a second
+        # page to retrieve the remaining secret.
+        mock_client.batch_get_secret_value.side_effect = [
+            {
+                "SecretValues": [
+                    {
+                        "Name": "ami-connect/sinks/my-snowflake",
+                        "SecretString": '{"user": "x"}',
+                    },
+                ],
+                "NextToken": "page-2-token",
+            },
+            {
+                "SecretValues": [
+                    {
+                        "Name": "ami-connect/sources/my-source",
+                        "SecretString": '{"token": "abc"}',
+                    },
+                ],
+            },
+        ]
+
+        result = secrets.get_secrets()
+
+        # Secrets from both pages are present.
+        self.assertEqual(result["sinks"]["my-snowflake"]["user"], "x")
+        self.assertEqual(result["sources"]["my-source"]["token"], "abc")
+
+        # Two calls: the second forwards the NextToken from the first.
+        self.assertEqual(mock_client.batch_get_secret_value.call_count, 2)
+        first_call, second_call = mock_client.batch_get_secret_value.call_args_list
+        self.assertNotIn("NextToken", first_call.kwargs)
+        self.assertEqual(second_call.kwargs["NextToken"], "page-2-token")
+        self.assertEqual(first_call.kwargs["MaxResults"], 20)
+
+    @patch("amiadapters.configuration.secrets._create_aws_secrets_manager_client")
     def test_update_secret_configuration_updates_existing(self, mock_client_factory):
         mock_client = MagicMock()
         mock_client_factory.return_value = mock_client
