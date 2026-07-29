@@ -15,32 +15,41 @@ logger = logging.getLogger(__name__)
 class SecretType(Enum):
     SOURCES = "sources"
     SINKS = "sinks"
-    PIPELINE = "pipeline"
 
 
 def get_secrets() -> dict[str, dict]:
     client = _create_aws_secrets_manager_client()
     prefix = SECRET_ID_PREFIX
 
-    # Get all secrets from AWS under this prefix
-    response = client.batch_get_secret_value(
-        Filters=[
-            {
-                "Key": "name",
-                "Values": [
-                    prefix,
-                ],
-            },
-        ],
-    )
+    filters = [
+        {
+            "Key": "name",
+            "Values": [
+                prefix,
+            ],
+        },
+    ]
 
-    # Unpack results into nested dictionary
+    # Unpack results into nested dictionary. batch_get_secret_value is paginated,
+    # so follow NextToken until all secrets under the prefix are retrieved.
+    # MaxResults=20 is the AWS-imposed maximum per page and minimizes round trips.
     result = {}
-    for secret_value in response.get("SecretValues", []):
-        value = json.loads(secret_value["SecretString"])
-        # Remove the prefix
-        key = secret_value["Name"].replace(prefix, "")
-        _unpack_secret_into_dictionary(result, key, value)
+    next_token = None
+    while True:
+        kwargs = {"Filters": filters, "MaxResults": 20}
+        if next_token:
+            kwargs["NextToken"] = next_token
+        response = client.batch_get_secret_value(**kwargs)
+
+        for secret_value in response.get("SecretValues", []):
+            value = json.loads(secret_value["SecretString"])
+            # Remove the prefix
+            key = secret_value["Name"].replace(prefix, "")
+            _unpack_secret_into_dictionary(result, key, value)
+
+        next_token = response.get("NextToken")
+        if not next_token:
+            break
 
     return result
 
