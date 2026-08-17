@@ -173,7 +173,7 @@ class TestBeacon360Adapter(BaseTestCase):
         self.assertEqual("standard", standard_extract.name)
         self.assertEqual(datetime.timedelta(days=2), standard_extract.interval)
         self.assertEqual(datetime.timedelta(days=0), standard_extract.lag)
-        self.assertEqual("0 12 * * *", standard_extract.schedule_crontab)
+        self.assertEqual("0 17 * * *", standard_extract.schedule_crontab)
 
         lagged_extract = result[1]
         self.assertEqual("lagged", lagged_extract.name)

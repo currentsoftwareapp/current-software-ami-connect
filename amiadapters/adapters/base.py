@@ -38,7 +38,7 @@ class ScheduledExtract:
     name: str = "standard"
     lag: timedelta = timedelta(days=0)
     interval: timedelta = timedelta(days=2)
-    schedule_crontab: str = "0 12 * * *"
+    schedule_crontab: str = "0 17 * * *"
 
 
 # Most adapters will use this standard daily extract with the default values
