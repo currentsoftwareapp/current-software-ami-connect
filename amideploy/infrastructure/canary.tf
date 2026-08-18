@@ -55,7 +55,9 @@ resource "aws_synthetics_canary" "airflow_healthcheck" {
 
 # Alarm when canary check fails
 resource "aws_cloudwatch_metric_alarm" "airflow_down_alarm" {
-  alarm_name          = "ami-connect-airflow-site-down"
+  # Hostname is included so the alarm name (which drives the default SNS
+  # email subject) identifies which deployment/site is down.
+  alarm_name          = "ami-connect-airflow-site-down-${var.airflow_hostname}"
   comparison_operator = "LessThanThreshold"
   evaluation_periods  = 2
   metric_name         = "SuccessPercent"
@@ -63,7 +65,7 @@ resource "aws_cloudwatch_metric_alarm" "airflow_down_alarm" {
   period              = 300
   statistic           = "Average"
   threshold           = 90
-  alarm_description   = "Alert when AMI Connect Airflow site is down"
+  alarm_description   = "Alert when AMI Connect Airflow site (${var.airflow_hostname}) is down"
   alarm_actions       = [aws_sns_topic.ami_connect_airflow_alerts.arn]
   dimensions = {
     CanaryName = aws_synthetics_canary.airflow_healthcheck.name
