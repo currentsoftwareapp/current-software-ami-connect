@@ -62,4 +62,4 @@ The config *reading/writing* logic lives in `amiadapters/configuration/` (`base.
 ### Notes
 
 - The **Neptune** adapter is not in this repo (open-source constraints); its private repo is cloned at deploy time and added to `sys.path` at runtime — see the `NEPTUNE` branch in `config.py`.
-- Airflow is installed against a **local fork** of Apache's constraints file (`constraints-3.2.1.txt`) to patch CVEs. The `--constraint` line in `requirements.txt` must stay on its own line or pip ignores it.
+- Airflow is installed against a **local fork** of Apache's constraints file (`constraints-3.3.1.txt`) to patch CVEs. The `--constraint` line in `requirements.txt` must stay on its own line or pip ignores it.
