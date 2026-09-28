@@ -10,12 +10,29 @@ DEFAULT_BACKOFF_FACTOR = (
 )
 DEFAULT_BACKOFF_MAX_SECONDS = 60
 DEFAULT_STATUS_FORCELIST = (429, 500, 502, 503, 504)
-# Includes POST, unlike urllib3's own default (which excludes it): every
-# adapter in this codebase only uses POST for idempotent-in-practice
-# read/query/report-trigger calls, never mutations.
 DEFAULT_ALLOWED_METHODS = frozenset(
     {"GET", "HEAD", "OPTIONS", "PUT", "DELETE", "TRACE", "POST"}
 )
+# Applied only when a call site doesn't pass its own timeout= - requests
+# itself never applies a timeout implicitly, so this is a safety net against
+# a call hanging indefinitely.
+DEFAULT_TIMEOUT_SECONDS = 300
+
+
+class _DefaultTimeoutHTTPAdapter(HTTPAdapter):
+    """
+    HTTPAdapter that falls back to a default timeout for any request that
+    doesn't specify its own timeout=... .
+    """
+
+    def __init__(self, *args, default_timeout: float, **kwargs):
+        self.default_timeout = default_timeout
+        super().__init__(*args, **kwargs)
+
+    def send(self, request, **kwargs):
+        if kwargs.get("timeout") is None:
+            kwargs["timeout"] = self.default_timeout
+        return super().send(request, **kwargs)
 
 
 def build_retrying_session(
@@ -24,14 +41,15 @@ def build_retrying_session(
     backoff_max: float = DEFAULT_BACKOFF_MAX_SECONDS,
     status_forcelist=DEFAULT_STATUS_FORCELIST,
     allowed_methods=DEFAULT_ALLOWED_METHODS,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> requests.Session:
     """
     Build a requests.Session that automatically retries transient failures
     (connection/read errors, and the given retryable HTTP status codes) with
     exponential backoff.
 
-    Does not set a default timeout - requests never applies one implicitly,
-    so every call site must keep passing timeout=... explicitly.
+    Falls back to `timeout` for any call that doesn't pass its own
+    timeout=... explicitly.
     """
     retry = Retry(
         total=total_retries,
@@ -41,7 +59,7 @@ def build_retrying_session(
         allowed_methods=set(allowed_methods),
         raise_on_status=False,
     )
-    adapter = HTTPAdapter(max_retries=retry)
+    adapter = _DefaultTimeoutHTTPAdapter(max_retries=retry, default_timeout=timeout)
     session = requests.Session()
     session.mount("https://", adapter)
     session.mount("http://", adapter)
