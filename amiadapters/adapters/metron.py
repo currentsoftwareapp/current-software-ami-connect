@@ -4,8 +4,6 @@ import json
 import logging
 from typing import Dict, List, Optional, Tuple
 
-import requests
-
 from amiadapters.adapters.base import BaseAMIAdapter
 from amiadapters.models import (
     DataclassJSONEncoder,
@@ -17,6 +15,7 @@ from amiadapters.models import (
 )
 from amiadapters.outputs.base import ExtractOutput
 from amiadapters.storage.snowflake import RawSnowflakeLoader, RawSnowflakeTableLoader
+from amiadapters.utils.http import build_retrying_session
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +90,7 @@ class MetronAdapter(BaseAMIAdapter):
     ):
         self.username = username
         self.password = password
+        self._session = build_retrying_session()
         super().__init__(
             org_id,
             org_timezone,
@@ -134,7 +134,7 @@ class MetronAdapter(BaseAMIAdapter):
         password as query parameters, and we must not leak the password to logs.
         """
         url = f"{BASE_URL}{path}"
-        response = requests.get(
+        response = self._session.get(
             url,
             params=params,
             timeout=30,

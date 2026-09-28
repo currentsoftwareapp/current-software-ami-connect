@@ -187,8 +187,8 @@ class TestBeacon360Adapter(BaseTestCase):
         self.assertEqual(datetime.timedelta(days=6 * 30), lagged_extract.lag)
         self.assertEqual("0 11 * * *", lagged_extract.schedule_crontab)
 
-    @mock.patch("requests.get")
-    @mock.patch("requests.post")
+    @mock.patch("requests.Session.get")
+    @mock.patch("requests.Session.post")
     def test_fetch_range_report__uses_cache(self, mock_post, mock_get):
         self.adapter.use_cache = True
         self.adapter._get_cached_report = mock.MagicMock(return_value=self.report_csv)
@@ -199,14 +199,14 @@ class TestBeacon360Adapter(BaseTestCase):
         self.assertEqual(0, mock_post.call_count)
 
     @mock.patch(
-        "requests.get",
+        "requests.Session.get",
         side_effect=[
             mocked_get_range_report_status_not_finished(),
             mocked_get_range_report_status_finished(),
             mocked_get_report_from_link(text=report_csv),
         ],
     )
-    @mock.patch("requests.post", side_effect=[mocked_create_range_report()])
+    @mock.patch("requests.Session.post", side_effect=[mocked_create_range_report()])
     @mock.patch("time.sleep")
     def test_fetch_range_report__can_fetch_report_from_api(
         self, mock_sleep, mock_post, mock_get
@@ -258,14 +258,14 @@ class TestBeacon360Adapter(BaseTestCase):
         self.assertEqual(1, mock_sleep.call_count)
 
     @mock.patch(
-        "requests.get",
+        "requests.Session.get",
         side_effect=[
             mocked_get_range_report_status_not_finished(),
             mocked_get_range_report_status_finished(),
             mocked_get_report_from_link(text=report_csv),
         ],
     )
-    @mock.patch("requests.post", side_effect=[mocked_response_429()])
+    @mock.patch("requests.Session.post", side_effect=[mocked_response_429()])
     @mock.patch("time.sleep")
     def test_fetch_range_report__throws_exception_when_rate_limit_exceeded_when_report_generated(
         self, mock_sleep, mock_post, mock_get
@@ -275,8 +275,8 @@ class TestBeacon360Adapter(BaseTestCase):
 
         self.assertTrue("Rate limit exceeded" in str(context.exception))
 
-    @mock.patch("requests.get", side_effect=[])
-    @mock.patch("requests.post", side_effect=[mocked_response_500()])
+    @mock.patch("requests.Session.get", side_effect=[])
+    @mock.patch("requests.Session.post", side_effect=[mocked_response_500()])
     @mock.patch("time.sleep")
     def test_fetch_range_report__throws_exception_when_non_202_from_report_generation(
         self, mock_sleep, mock_post, mock_get
@@ -286,8 +286,8 @@ class TestBeacon360Adapter(BaseTestCase):
 
         self.assertTrue("Failed request to generate report" in str(context.exception))
 
-    @mock.patch("requests.get", side_effect=[mocked_response_500()])
-    @mock.patch("requests.post", side_effect=[mocked_create_range_report()])
+    @mock.patch("requests.Session.get", side_effect=[mocked_response_500()])
+    @mock.patch("requests.Session.post", side_effect=[mocked_create_range_report()])
     @mock.patch("time.sleep")
     def test_fetch_range_report__throws_exception_when_status_response_non_200(
         self, mock_sleep, mock_post, mock_get
@@ -297,8 +297,10 @@ class TestBeacon360Adapter(BaseTestCase):
 
         self.assertTrue("Failed request to get report status" in str(context.exception))
 
-    @mock.patch("requests.get", side_effect=[mocked_exception_from_status_check()])
-    @mock.patch("requests.post", side_effect=[mocked_create_range_report()])
+    @mock.patch(
+        "requests.Session.get", side_effect=[mocked_exception_from_status_check()]
+    )
+    @mock.patch("requests.Session.post", side_effect=[mocked_create_range_report()])
     @mock.patch("time.sleep")
     def test_fetch_range_report__throws_exception_when_status_response_indicates_exception(
         self, mock_sleep, mock_post, mock_get
@@ -310,10 +312,10 @@ class TestBeacon360Adapter(BaseTestCase):
 
     # Mock the status call response as "not finished" way more times than our max limit
     @mock.patch(
-        "requests.get",
+        "requests.Session.get",
         side_effect=[mocked_get_range_report_status_not_finished()] * 500,
     )
-    @mock.patch("requests.post", side_effect=[mocked_create_range_report()])
+    @mock.patch("requests.Session.post", side_effect=[mocked_create_range_report()])
     @mock.patch("time.sleep")
     def test_fetch_range_report__throws_exception_when_max_attempts_reached_while_polling_for_status(
         self, mock_sleep, mock_post, mock_get
@@ -323,28 +325,17 @@ class TestBeacon360Adapter(BaseTestCase):
 
         self.assertTrue("Reached max attempts" in str(context.exception))
 
-    @mock.patch(
-        "requests.get",
-        side_effect=[
-            mocked_get_range_report_status_finished(),
-            Exception,
-            mocked_get_report_from_link(text=report_csv),
-        ],
-    )
-    @mock.patch("requests.post", side_effect=[mocked_create_range_report()])
-    @mock.patch("time.sleep")
-    def test_fetch_range_report__retries_once_when_fetch_report_throws_exception(
-        self, mock_sleep, mock_post, mock_get
-    ):
-        result = self.adapter._fetch_range_report(self.range_start, self.range_end)
-        self.assertEqual(self.report_csv, result)
-        self.assertEqual(1, mock_sleep.call_count)
+    # Note: BeaconReportClient._download's old hand-rolled "retry once on any
+    # raised exception" behavior was removed in favor of the shared retrying
+    # requests.Session (amiadapters.utils.http.build_retrying_session), which
+    # retries transient connection/read errors below this mock boundary. See
+    # test/amiadapters/utils/test_http.py for end-to-end retry coverage.
 
     @mock.patch(
-        "requests.get",
+        "requests.Session.get",
         side_effect=[mocked_get_range_report_status_finished(), mocked_response_500()],
     )
-    @mock.patch("requests.post", side_effect=[mocked_create_range_report()])
+    @mock.patch("requests.Session.post", side_effect=[mocked_create_range_report()])
     @mock.patch("time.sleep")
     def test_fetch_range_report__throws_exception_when_fetch_report_returns_non_200(
         self, mock_sleep, mock_post, mock_get
@@ -783,28 +774,28 @@ class TestBeaconReportClient(BaseTestCase):
         self.client = BeaconReportClient(user="user", password="pass")
 
     @mock.patch(
-        "requests.get",
+        "requests.Session.get",
         side_effect=[
             mocked_get_range_report_status_not_finished(),
             mocked_get_range_report_status_finished(),
             mocked_get_report_from_link(text=REPORT_TEXT),
         ],
     )
-    @mock.patch("requests.post", side_effect=[mocked_create_range_report()])
+    @mock.patch("requests.Session.post", side_effect=[mocked_create_range_report()])
     @mock.patch("time.sleep")
     def test_fetch__returns_report_text(self, mock_sleep, mock_post, mock_get):
         result = self.client.fetch(self.ENDPOINT, self.PARAMS)
         self.assertEqual(self.REPORT_TEXT, result)
 
     @mock.patch(
-        "requests.get",
+        "requests.Session.get",
         side_effect=[
             mocked_get_range_report_status_not_finished(),
             mocked_get_range_report_status_finished(),
             mocked_get_report_from_link(text=REPORT_TEXT),
         ],
     )
-    @mock.patch("requests.post", side_effect=[mocked_create_range_report()])
+    @mock.patch("requests.Session.post", side_effect=[mocked_create_range_report()])
     @mock.patch("time.sleep")
     def test_fetch__posts_to_correct_url(self, mock_sleep, mock_post, mock_get):
         self.client.fetch(self.ENDPOINT, self.PARAMS)
@@ -815,14 +806,14 @@ class TestBeaconReportClient(BaseTestCase):
         self.assertEqual(self.PARAMS, post_call.kwargs["params"])
 
     @mock.patch(
-        "requests.get",
+        "requests.Session.get",
         side_effect=[
             mocked_get_range_report_status_not_finished(),
             mocked_get_range_report_status_finished(),
             mocked_get_report_from_link(text=REPORT_TEXT),
         ],
     )
-    @mock.patch("requests.post", side_effect=[mocked_create_range_report()])
+    @mock.patch("requests.Session.post", side_effect=[mocked_create_range_report()])
     @mock.patch("time.sleep")
     def test_fetch__polls_status_then_downloads(self, mock_sleep, mock_post, mock_get):
         self.client.fetch(self.ENDPOINT, self.PARAMS)
@@ -842,24 +833,24 @@ class TestBeaconReportClient(BaseTestCase):
         )
         self.assertEqual(1, mock_sleep.call_count)
 
-    @mock.patch("requests.get", side_effect=[])
-    @mock.patch("requests.post", side_effect=[mocked_response_429()])
+    @mock.patch("requests.Session.get", side_effect=[])
+    @mock.patch("requests.Session.post", side_effect=[mocked_response_429()])
     @mock.patch("time.sleep")
     def test_fetch__raises_on_rate_limit(self, mock_sleep, mock_post, mock_get):
         with self.assertRaises(Exception) as ctx:
             self.client.fetch(self.ENDPOINT, self.PARAMS)
         self.assertIn("Rate limit exceeded", str(ctx.exception))
 
-    @mock.patch("requests.get", side_effect=[])
-    @mock.patch("requests.post", side_effect=[mocked_response_500()])
+    @mock.patch("requests.Session.get", side_effect=[])
+    @mock.patch("requests.Session.post", side_effect=[mocked_response_500()])
     @mock.patch("time.sleep")
     def test_fetch__raises_on_non_202(self, mock_sleep, mock_post, mock_get):
         with self.assertRaises(Exception) as ctx:
             self.client.fetch(self.ENDPOINT, self.PARAMS)
         self.assertIn("Failed request to generate report", str(ctx.exception))
 
-    @mock.patch("requests.get", side_effect=[mocked_response_500()])
-    @mock.patch("requests.post", side_effect=[mocked_create_range_report()])
+    @mock.patch("requests.Session.get", side_effect=[mocked_response_500()])
+    @mock.patch("requests.Session.post", side_effect=[mocked_create_range_report()])
     @mock.patch("time.sleep")
     def test_fetch__raises_when_status_poll_returns_non_200(
         self, mock_sleep, mock_post, mock_get
@@ -868,8 +859,10 @@ class TestBeaconReportClient(BaseTestCase):
             self.client.fetch(self.ENDPOINT, self.PARAMS)
         self.assertIn("Failed request to get report status", str(ctx.exception))
 
-    @mock.patch("requests.get", side_effect=[mocked_exception_from_status_check()])
-    @mock.patch("requests.post", side_effect=[mocked_create_range_report()])
+    @mock.patch(
+        "requests.Session.get", side_effect=[mocked_exception_from_status_check()]
+    )
+    @mock.patch("requests.Session.post", side_effect=[mocked_create_range_report()])
     @mock.patch("time.sleep")
     def test_fetch__raises_when_status_indicates_exception(
         self, mock_sleep, mock_post, mock_get
@@ -879,10 +872,10 @@ class TestBeaconReportClient(BaseTestCase):
         self.assertIn("Exception found in report status", str(ctx.exception))
 
     @mock.patch(
-        "requests.get",
+        "requests.Session.get",
         side_effect=[mocked_get_range_report_status_not_finished()] * 500,
     )
-    @mock.patch("requests.post", side_effect=[mocked_create_range_report()])
+    @mock.patch("requests.Session.post", side_effect=[mocked_create_range_report()])
     @mock.patch("time.sleep")
     def test_fetch__raises_when_max_poll_attempts_reached(
         self, mock_sleep, mock_post, mock_get
@@ -891,28 +884,17 @@ class TestBeaconReportClient(BaseTestCase):
             self.client.fetch(self.ENDPOINT, self.PARAMS)
         self.assertIn("Reached max attempts", str(ctx.exception))
 
-    @mock.patch(
-        "requests.get",
-        side_effect=[
-            mocked_get_range_report_status_finished(),
-            Exception("connection error"),
-            mocked_get_report_from_link(text=REPORT_TEXT),
-        ],
-    )
-    @mock.patch("requests.post", side_effect=[mocked_create_range_report()])
-    @mock.patch("time.sleep")
-    def test_fetch__retries_download_once_on_exception(
-        self, mock_sleep, mock_post, mock_get
-    ):
-        result = self.client.fetch(self.ENDPOINT, self.PARAMS)
-        self.assertEqual(self.REPORT_TEXT, result)
-        self.assertEqual(1, mock_sleep.call_count)
+    # Note: BeaconReportClient._download's old hand-rolled "retry once on any
+    # raised exception" behavior was removed in favor of the shared retrying
+    # requests.Session (amiadapters.utils.http.build_retrying_session), which
+    # retries transient connection/read errors below this mock boundary. See
+    # test/amiadapters/utils/test_http.py for end-to-end retry coverage.
 
     @mock.patch(
-        "requests.get",
+        "requests.Session.get",
         side_effect=[mocked_get_range_report_status_finished(), mocked_response_500()],
     )
-    @mock.patch("requests.post", side_effect=[mocked_create_range_report()])
+    @mock.patch("requests.Session.post", side_effect=[mocked_create_range_report()])
     @mock.patch("time.sleep")
     def test_fetch__raises_when_download_returns_non_200(
         self, mock_sleep, mock_post, mock_get
