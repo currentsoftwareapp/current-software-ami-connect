@@ -62,7 +62,7 @@ class TestMetronAdapter(BaseTestCase):
         self.assertEqual("this-utility", self.adapter.org_id)
         self.assertEqual("metron-this-utility", self.adapter.name())
 
-    @mock.patch("requests.get", side_effect=[mocked_get_billing()])
+    @mock.patch("requests.Session.get", side_effect=[mocked_get_billing()])
     def test_extract_reads(self, mock_get):
         result = self.adapter._extract_reads(self.range_start, self.range_end)
         self.assertEqual(1, len(result))
@@ -90,7 +90,7 @@ class TestMetronAdapter(BaseTestCase):
         # numberDaysWindow is the span of the extract range in days.
         self.assertEqual(1, params["numberDaysWindow"])
 
-    @mock.patch("requests.get", side_effect=[mocked_get_billing()])
+    @mock.patch("requests.Session.get", side_effect=[mocked_get_billing()])
     def test_extract_reads_window_spans_range(self, mock_get):
         wide_start = datetime.datetime(2026, 1, 1, 0, 0)
         wide_end = datetime.datetime(2026, 1, 31, 0, 0)
@@ -98,7 +98,7 @@ class TestMetronAdapter(BaseTestCase):
         params = mock_get.call_args_list[0].kwargs["params"]
         self.assertEqual(30, params["numberDaysWindow"])
 
-    @mock.patch("requests.get", side_effect=[mocked_response_500()])
+    @mock.patch("requests.Session.get", side_effect=[mocked_response_500()])
     def test_extract__non_200_raises(self, mock_get):
         with self.assertRaises(Exception):
             self.adapter._extract_reads(self.range_start, self.range_end)
@@ -326,7 +326,7 @@ class TestMetronAdapter(BaseTestCase):
         self.assertEqual(1, len(transformed_meters))
         self.assertEqual(0, len(transformed_reads))
 
-    @mock.patch("requests.get", side_effect=[mocked_get_conditions()])
+    @mock.patch("requests.Session.get", side_effect=[mocked_get_conditions()])
     def test_extract_conditions(self, mock_get):
         result = self.adapter._extract_conditions()
         self.assertEqual(1, len(result))

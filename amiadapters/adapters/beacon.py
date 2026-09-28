@@ -26,6 +26,7 @@ from amiadapters.models import (
 )
 from amiadapters.outputs.base import ExtractOutput
 from amiadapters.storage.snowflake import RawSnowflakeLoader, RawSnowflakeTableLoader
+from amiadapters.utils.http import build_retrying_session
 
 logger = logging.getLogger(__name__)
 
@@ -535,6 +536,7 @@ class BeaconReportClient:
 
     def __init__(self, user: str, password: str):
         self.auth = requests.auth.HTTPBasicAuth(user, password)
+        self.session = build_retrying_session()
 
     def fetch(
         self, endpoint: str, params: dict, sleep_interval_seconds: int = 60
@@ -543,7 +545,7 @@ class BeaconReportClient:
         POST to the given endpoint to trigger report generation, poll until done,
         then download and return the report text.
         """
-        generate_response = requests.post(
+        generate_response = self.session.post(
             url=f"{self.BASE_URL}{endpoint}",
             headers=self.HEADERS,
             params=params,
@@ -578,7 +580,7 @@ class BeaconReportClient:
                 f"Attempt {i}/{max_attempts} while polling for status on report at {status_url}"
             )
 
-            status_response = requests.get(
+            status_response = self.session.get(
                 url=f"{self.BASE_URL}{status_url}",
                 headers=self.HEADERS,
                 auth=self.auth,
@@ -608,24 +610,13 @@ class BeaconReportClient:
         )
 
     def _download(self, report_url: str) -> str:
-        try:
-            logger.info(f"Downloading report at {report_url}")
-            response = requests.get(
-                url=f"{self.BASE_URL}{report_url}",
-                headers=self.HEADERS,
-                auth=self.auth,
-                timeout=120,
-            )
-        except Exception as e:
-            logger.info(f"Exception downloading report at {report_url}: {e}. Retrying.")
-            time.sleep(60)
-            logger.info(f"Retrying download for report at {report_url}")
-            response = requests.get(
-                url=f"{self.BASE_URL}{report_url}",
-                headers=self.HEADERS,
-                auth=self.auth,
-                timeout=120,
-            )
+        logger.info(f"Downloading report at {report_url}")
+        response = self.session.get(
+            url=f"{self.BASE_URL}{report_url}",
+            headers=self.HEADERS,
+            auth=self.auth,
+            timeout=120,
+        )
 
         if response.status_code != 200:
             raise Exception(

@@ -161,7 +161,7 @@ class TestSentryxAdapter(BaseTestCase):
         self.assertEqual("sentryx-api-this-utility", self.adapter.name())
 
     @mock.patch(
-        "requests.get",
+        "requests.Session.get",
         side_effect=[
             mocked_get_devices_response_first_page(),
             mocked_get_devices_response_last_page(),
@@ -193,17 +193,19 @@ class TestSentryxAdapter(BaseTestCase):
                 "https://api.sentryx.io/v1-wm/sites/my-utility-name/devices",
                 headers={"Authorization": "key"},
                 params={"pager.skip": 0, "pager.take": 25},
+                timeout=30,
             ),
             mock.call(
                 "https://api.sentryx.io/v1-wm/sites/my-utility-name/devices",
                 headers={"Authorization": "key"},
                 params={"pager.skip": 1, "pager.take": 25},
+                timeout=30,
             ),
         ]
         self.assertListEqual(calls, mock_get.call_args_list)
 
     @mock.patch(
-        "requests.get",
+        "requests.Session.get",
         side_effect=[mocked_get_devices_response_first_page(), mocked_response_500()],
     )
     def test_extract_all_meters__non_200_status_code(self, mock_get):
@@ -211,7 +213,7 @@ class TestSentryxAdapter(BaseTestCase):
             self.adapter._extract_all_meters()
 
     @mock.patch(
-        "requests.get",
+        "requests.Session.get",
         side_effect=[
             mocked_get_consumption_response_first_page(),
             mocked_get_consumption_response_last_page(),
@@ -251,6 +253,7 @@ class TestSentryxAdapter(BaseTestCase):
                     "StartDate": "2024-01-02T00:00:00",
                     "EndDate": "2024-01-03T00:00:00",
                 },
+                timeout=30,
             ),
             mock.call(
                 "https://api.sentryx.io/v1-wm/sites/my-utility-name/devices/consumption",
@@ -261,12 +264,13 @@ class TestSentryxAdapter(BaseTestCase):
                     "StartDate": "2024-01-02T00:00:00",
                     "EndDate": "2024-01-03T00:00:00",
                 },
+                timeout=30,
             ),
         ]
         self.assertListEqual(calls, mock_get.call_args_list)
 
     @mock.patch(
-        "requests.get",
+        "requests.Session.get",
         side_effect=[
             mocked_get_consumption_response_first_page(),
             mocked_response_500(),

@@ -132,7 +132,7 @@ class TestZennerAdapter(BaseTestCase):
             self.adapter._headers(),
         )
 
-    @mock.patch("requests.get", side_effect=[mocked_get_all_meters()])
+    @mock.patch("requests.Session.get", side_effect=[mocked_get_all_meters()])
     def test_extract_all_meters(self, mock_get):
         result = self.adapter._extract_all_meters()
         self.assertEqual(1, len(result))
@@ -149,7 +149,7 @@ class TestZennerAdapter(BaseTestCase):
             timeout=self.adapter.REQUEST_TIMEOUT_SECONDS,
         )
 
-    @mock.patch("requests.get", side_effect=[mocked_get_all_account_meters()])
+    @mock.patch("requests.Session.get", side_effect=[mocked_get_all_account_meters()])
     def test_extract_all_account_meters(self, mock_get):
         result = self.adapter._extract_all_account_meters()
         self.assertEqual(1, len(result))
@@ -162,7 +162,7 @@ class TestZennerAdapter(BaseTestCase):
         # Unique key is synthesized from account + meter + node.
         self.assertEqual("4-01162-01-010201-2476542", am.unique_key)
 
-    @mock.patch("requests.get", side_effect=[mocked_get_all_accounts()])
+    @mock.patch("requests.Session.get", side_effect=[mocked_get_all_accounts()])
     def test_extract_all_accounts_flattens_address(self, mock_get):
         result = self.adapter._extract_all_accounts()
         self.assertEqual(1, len(result))
@@ -174,7 +174,7 @@ class TestZennerAdapter(BaseTestCase):
         self.assertEqual("91791", account.zip_code)
         self.assertEqual("Water", account.utility_type)
 
-    @mock.patch("requests.get", side_effect=[mocked_get_all_nodes()])
+    @mock.patch("requests.Session.get", side_effect=[mocked_get_all_nodes()])
     def test_extract_all_nodes(self, mock_get):
         result = self.adapter._extract_all_nodes()
         self.assertEqual(1, len(result))
@@ -185,13 +185,13 @@ class TestZennerAdapter(BaseTestCase):
         self.assertEqual(25, node.register_type)
         self.assertEqual("2025-07-28T22:00:00", node.activation_date)
 
-    @mock.patch("requests.get", side_effect=[mocked_response_500()])
+    @mock.patch("requests.Session.get", side_effect=[mocked_response_500()])
     def test_extract__non_200_raises(self, mock_get):
         with self.assertRaises(Exception):
             self.adapter._extract_all_nodes()
 
     @mock.patch(
-        "requests.get",
+        "requests.Session.get",
         side_effect=[
             mocked_get_all_readings_first_page(),
             mocked_get_all_readings_empty(),
@@ -233,7 +233,7 @@ class TestZennerAdapter(BaseTestCase):
         )
 
     @mock.patch(
-        "requests.get",
+        "requests.Session.get",
         side_effect=[
             mocked_get_all_readings_first_page(),
             mocked_get_all_readings_first_page(),

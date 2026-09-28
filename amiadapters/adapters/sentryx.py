@@ -4,8 +4,6 @@ import logging
 import json
 from typing import List, Tuple
 
-import requests
-
 from amiadapters.models import (
     DataclassJSONEncoder,
     GeneralMeter,
@@ -14,6 +12,7 @@ from amiadapters.models import (
 from amiadapters.adapters.base import BaseAMIAdapter
 from amiadapters.outputs.base import ExtractOutput
 from amiadapters.storage.snowflake import RawSnowflakeLoader, RawSnowflakeTableLoader
+from amiadapters.utils.http import build_retrying_session
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +166,7 @@ class SentryxAdapter(BaseAMIAdapter):
         # This is used to create URLs for the Sentryx API. It must match the name used to generate API credentials.
         # It defaults to the org_id.
         self.utility_name = utility_name if utility_name is not None else org_id
+        self._session = build_retrying_session()
         super().__init__(
             org_id,
             org_timezone,
@@ -226,7 +226,9 @@ class SentryxAdapter(BaseAMIAdapter):
             logger.info(
                 f"Extracting meters for {self.org_id}, skip={params["pager.skip"]}"
             )
-            response = requests.get(url, headers=headers, params=params)
+            response = self._session.get(
+                url, headers=headers, params=params, timeout=30
+            )
             if not response.status_code == 200:
                 raise Exception(
                     f"Non-200 response from devices endpoint: {response.status_code} {response.text}"
@@ -281,7 +283,9 @@ class SentryxAdapter(BaseAMIAdapter):
             logger.info(
                 f"Extracting meter reads for {self.org_id}, skip={params["skip"]}"
             )
-            response = requests.get(url, headers=headers, params=params)
+            response = self._session.get(
+                url, headers=headers, params=params, timeout=30
+            )
             if not response.status_code == 200:
                 raise Exception(
                     f"Non-200 response from device consumption endpoint: {response.status_code} {response.text}"
