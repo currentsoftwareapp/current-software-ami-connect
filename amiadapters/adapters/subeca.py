@@ -2,7 +2,6 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 import logging
 import json
-import time
 from typing import Dict, Generator, List, Set, Tuple
 
 import requests
@@ -17,6 +16,7 @@ from amiadapters.models import (
 )
 from amiadapters.outputs.base import ExtractOutput
 from amiadapters.storage.snowflake import RawSnowflakeLoader, RawSnowflakeTableLoader
+from amiadapters.utils.http import build_retrying_session
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +97,7 @@ class SubecaAdapter(BaseAMIAdapter):
     ):
         self.api_url = api_url
         self.api_key = api_key
+        self._session = build_retrying_session()
         super().__init__(
             org_id,
             org_timezone,
@@ -183,9 +184,14 @@ class SubecaAdapter(BaseAMIAdapter):
                 params["nextToken"] = next_token
 
             logger.info(f"Requesting Subeca accounts. Page {num_pages}")
-            result = self._make_request_with_retries(
-                "get", f"{self.api_url}/v1/accounts", params=params, headers=headers
+            url = f"{self.api_url}/v1/accounts"
+            result = self._session.get(
+                url,
+                params=params,
+                headers=headers,
+                timeout=30,
             )
+            self._check_ok(result, url)
 
             response_json = result.json()
             data = response_json["data"]
@@ -227,12 +233,14 @@ class SubecaAdapter(BaseAMIAdapter):
             "content-type": "application/json",
             "x-subeca-api-key": self.api_key,
         }
-        result = self._make_request_with_retries(
-            "post",
-            f"{self.api_url}/v1/accounts/{account_id}/usages",
+        url = f"{self.api_url}/v1/accounts/{account_id}/usages"
+        result = self._session.post(
+            url,
             json=body,
             headers=headers,
+            timeout=30,
         )
+        self._check_ok(result, url)
 
         for usage_time, usage in (
             result.json().get("data", {}).get("hourly", {}).items()
@@ -283,12 +291,14 @@ class SubecaAdapter(BaseAMIAdapter):
             "content-type": "application/json",
             "x-subeca-api-key": self.api_key,
         }
-        result = self._make_request_with_retries(
-            "get",
-            f"{self.api_url}/v1/accounts/{account_id}",
+        url = f"{self.api_url}/v1/accounts/{account_id}"
+        result = self._session.get(
+            url,
             params={"readUnit": self.READ_UNIT},
             headers=headers,
+            timeout=30,
         )
+        self._check_ok(result, url)
 
         raw_account = result.json()
         raw_device = raw_account.get("device") or {}
@@ -368,12 +378,14 @@ class SubecaAdapter(BaseAMIAdapter):
             logger.info(
                 f"Requesting Subeca alarms for account {account_id}. Page {num_pages}"
             )
-            result = self._make_request_with_retries(
-                "post",
-                f"{self.api_url}/v1/accounts/{account_id}/alarms",
+            url = f"{self.api_url}/v1/accounts/{account_id}/alarms"
+            result = self._session.post(
+                url,
                 json=body,
                 headers=headers,
+                timeout=30,
             )
+            self._check_ok(result, url)
             response_json = result.json()
             data = response_json.get("data") or []
 
@@ -404,37 +416,12 @@ class SubecaAdapter(BaseAMIAdapter):
 
         return alarms
 
-    def _make_request_with_retries(
-        self, method: str, url: str, **kwargs
-    ) -> requests.Response:
-        """
-        The Subeca API occasionally returns 5xx errors that we can skip over with a retry.
-        Make an HTTP request with retries for retriable status codes.
-        """
-        max_retries = 3
-        backoff_factor = 2
-        retriable_statuses = {500, 502, 503, 504}
-
-        for attempt in range(1, max_retries + 1):
-            response = requests.request(method, url, **kwargs)
-            if response.ok:
-                return response
-            elif response.status_code in retriable_statuses:
-                logger.warning(
-                    f"Request to {url} failed with status {response.status_code}. "
-                    f"Attempt {attempt} of {max_retries}."
-                )
-                if attempt < max_retries:
-                    sleep_time = backoff_factor ** (attempt - 1)
-                    logger.info(f"Retrying after {sleep_time} seconds...")
-                    time.sleep(sleep_time)
-            else:
-                # Non-retriable failure, raise immediately
-                break
-
-        raise ValueError(
-            f"Request to {url} failed: " f"{response.status_code} {response.text}"
-        )
+    @staticmethod
+    def _check_ok(response: requests.Response, url: str) -> None:
+        if not response.ok:
+            raise ValueError(
+                f"Request to {url} failed: {response.status_code} {response.text}"
+            )
 
     def _transform(
         self, run_id: str, extract_outputs: ExtractOutput
