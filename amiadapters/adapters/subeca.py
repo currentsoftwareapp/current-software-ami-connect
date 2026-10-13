@@ -7,6 +7,7 @@ from typing import Dict, Generator, List, Set, Tuple
 import requests
 
 from amiadapters.adapters.base import BaseAMIAdapter
+from amiadapters.configuration.models import is_new_style_subeca_org_id
 from amiadapters.models import (
     DataclassJSONEncoder,
     GeneralMeter,
@@ -98,6 +99,11 @@ class SubecaAdapter(BaseAMIAdapter):
         self.api_url = api_url
         self.api_key = api_key
         self._session = build_retrying_session()
+        # Temporary scaffolding for the device_id migration: a new-style Subeca org_id
+        # (suffix convention, see amiadapters.configuration.models.NEW_STYLE_SUBECA_ORG_SUFFIX)
+        # uses meterSerial/accountId as device_id instead of Subeca's unstable registerSerial.
+        # Remove this branch once every Subeca org has cut over to the new style.
+        self._uses_new_device_id_scheme = is_new_style_subeca_org_id(org_id)
         super().__init__(
             org_id,
             org_timezone,
@@ -423,6 +429,26 @@ class SubecaAdapter(BaseAMIAdapter):
                 f"Request to {url} failed: {response.status_code} {response.text}"
             )
 
+    @staticmethod
+    def _new_device_id(account: "SubecaAccount") -> str | None:
+        """
+        The device_id used on the new (new-style Subeca org) scheme: Subeca's meterSerial is
+        stable across register/endpoint swaps, unlike deviceId/registerSerial. Falls
+        back to accountId when meterSerial is empty/null.
+        """
+        return account.meterSerial or account.accountId
+
+    def _old_to_new_device_id_map(self, raw_accounts: List["SubecaAccount"]) -> Dict:
+        """
+        Maps each account's raw (registerSerial-based) deviceId to the new,
+        meterSerial-based device_id, for translating alarms within the same run.
+        """
+        return {
+            account.deviceId: self._new_device_id(account)
+            for account in raw_accounts
+            if account.deviceId
+        }
+
     def _transform(
         self, run_id: str, extract_outputs: ExtractOutput
     ) -> Tuple[List[GeneralMeter], List[GeneralMeterRead]]:
@@ -433,7 +459,13 @@ class SubecaAdapter(BaseAMIAdapter):
         reads_by_device_and_time = {}
 
         for account in raw_accounts:
-            device_id = account.deviceId
+            # account.deviceId (Subeca's registerSerial) is always used to look up this
+            # account's usages below, since usage records only carry that raw ID. The
+            # device_id assigned to our models differs by scheme.
+            if self._uses_new_device_id_scheme:
+                device_id = self._new_device_id(account)
+            else:
+                device_id = account.deviceId
             if not device_id:
                 logger.warning(f"Skipping account {account} with null device ID")
                 continue
@@ -549,10 +581,26 @@ class SubecaAdapter(BaseAMIAdapter):
         """
         result = []
         raw_alarms = self._read_file(extract_outputs, "alarms.json", SubecaAlarm)
+
+        old_to_new_device_id = {}
+        if self._uses_new_device_id_scheme:
+            raw_accounts = _read_accounts_file(extract_outputs)
+            old_to_new_device_id = self._old_to_new_device_id_map(raw_accounts)
+
         for alarm in raw_alarms:
+            if self._uses_new_device_id_scheme:
+                device_id = old_to_new_device_id.get(alarm.deviceId)
+                if not device_id:
+                    logger.warning(
+                        f"Skipping alarm for untranslatable device ID {alarm.deviceId}: {alarm}"
+                    )
+                    continue
+            else:
+                device_id = alarm.deviceId
+
             alert = GeneralMeterAlert(
                 org_id=self.org_id,
-                device_id=alarm.deviceId,
+                device_id=device_id,
                 alert_type=alarm.name,
                 start_time=datetime.fromisoformat(alarm.startAt),
                 end_time=datetime.fromisoformat(alarm.endAt) if alarm.endAt else None,

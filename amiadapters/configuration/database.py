@@ -7,6 +7,8 @@ from amiadapters.configuration.models import (
     ConfiguredAMISourceTypes,
     PipelineConfiguration,
     SourceConfigBase,
+    base_org_id,
+    is_new_style_subeca_org_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -168,6 +170,18 @@ def _get_utility_billing_account_thresholds_from_postgres(
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
+def _candidate_org_ids_for_utility_billing_lookup(org_id: str) -> List[str]:
+    """
+    Utility Billing's Postgres DB has no Organization row for a device_id-migration
+    new-style Subeca org_id until it's cut over. Until then, fall back to matching its
+    non-suffixed original so meter alert thresholds -- and therefore detected alerts --
+    stay identical between the old and new org_id during the parallel-run period.
+    """
+    if is_new_style_subeca_org_id(org_id):
+        return [org_id, base_org_id(org_id)]
+    return [org_id]
+
+
 def _merge_snowflake_and_utility_billing_settings(
     snowflake_sources,
     utility_billing_org_thresholds,
@@ -180,11 +194,14 @@ def _merge_snowflake_and_utility_billing_settings(
     for source in snowflake_sources:
         # Add meter alerts object to source config
         source["meter_alerts"] = {}
+        candidate_org_ids = _candidate_org_ids_for_utility_billing_lookup(
+            source["org_id"]
+        )
         # Find matching configuration from utility billing settings, matching on snowflake_id = org_id
         if matching := [
             i
             for i in utility_billing_org_thresholds
-            if i["snowflakeid"] == source["org_id"]
+            if i["snowflakeid"] in candidate_org_ids
         ]:
             if len(matching) != 1:
                 raise ValueError(
@@ -212,7 +229,7 @@ def _merge_snowflake_and_utility_billing_settings(
                 "unit": t["unit"],
             }
             for t in utility_billing_account_thresholds
-            if t.get("snowflakeid") == source["org_id"]
+            if t.get("snowflakeid") in candidate_org_ids
             and t.get("device_id")
             and t.get("threshold") is not None
             and t.get("unit")

@@ -1,8 +1,25 @@
 from amiadapters.configuration.models import (
     PipelineSecretsBase,
     UtilityBillingSecrets,
+    base_org_id,
+    is_new_style_subeca_org_id,
 )
 from test.base_test_case import BaseTestCase
+
+
+class TestNewStyleSubecaOrgId(BaseTestCase):
+
+    def test_is_new_style_subeca_org_id_true_for_suffixed_org(self):
+        self.assertTrue(is_new_style_subeca_org_id("my_subeca_utility_2"))
+
+    def test_is_new_style_subeca_org_id_false_for_plain_org(self):
+        self.assertFalse(is_new_style_subeca_org_id("my_subeca_utility"))
+
+    def test_base_org_id_strips_suffix(self):
+        self.assertEqual("my_subeca_utility", base_org_id("my_subeca_utility_2"))
+
+    def test_base_org_id_returns_unchanged_when_no_suffix(self):
+        self.assertEqual("my_subeca_utility", base_org_id("my_subeca_utility"))
 
 
 class TestPipelineSecretsBase(BaseTestCase):

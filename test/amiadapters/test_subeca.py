@@ -715,6 +715,165 @@ class TestSubecaAdapter(BaseTestCase):
         self.assertIsNone(result[1].end_time)
 
 
+class TestSubecaAdapterNewDeviceIdScheme(BaseTestCase):
+    """
+    Covers the device_id migration's new scheme (meterSerial/accountId-based device_id),
+    active only for new-style Subeca org_ids (suffix convention). See amiadapters.configuration.models.
+    """
+
+    def setUp(self):
+        self.adapter = SubecaAdapter(
+            org_id="test-org_2",
+            org_timezone=pytz.timezone("America/Los_Angeles"),
+            pipeline_configuration=self.TEST_PIPELINE_CONFIGURATION,
+            api_url="http://localhost/my-url",
+            api_key="test-key",
+            configured_task_output_controller=self.TEST_TASK_OUTPUT_CONTROLLER_CONFIGURATION,
+            configured_meter_alerts=self.TEST_METER_ALERT_CONFIGURATION,
+            configured_metrics=self.TEST_METRICS_CONFIGURATION,
+            configured_sinks=[],
+        )
+
+    def make_extract_output(self, accounts, usages, alarms=None):
+        return ExtractOutput(
+            {
+                "accounts.json": "\n".join(
+                    json.dumps(a, default=lambda o: o.__dict__) for a in accounts
+                ),
+                "usages.json": "\n".join(
+                    json.dumps(u, default=lambda o: o.__dict__) for u in usages
+                ),
+                "alarms.json": "\n".join(
+                    json.dumps(a, default=lambda o: o.__dict__) for a in (alarms or [])
+                ),
+            }
+        )
+
+    def _make_account(self, **overrides):
+        defaults = dict(
+            accountId="A1",
+            accountStatus="active",
+            meterSerial="M1",
+            billingRoute="",
+            registerSerial="R1",
+            meterSize="5/8",
+            createdAt="2025-08-01T10:00:00+00:00",
+            deviceId="D1",
+            activeProtocol="LoRaWAN",
+            installationDate="2025-08-01T10:00:00+00:00",
+            latestCommunicationDate="2025-08-02T10:00:00+00:00",
+            latestReading=SubecaReading(
+                deviceId="D1",
+                usageTime="2025-08-01T10:00:00+00:00",
+                unit="cf",
+                value="100",
+            ),
+        )
+        defaults.update(overrides)
+        return SubecaAccount(**defaults)
+
+    def test_uses_new_device_id_scheme_for_new_style_subeca_org(self):
+        self.assertTrue(self.adapter._uses_new_device_id_scheme)
+
+    def test_device_id_uses_meter_serial(self):
+        account = self._make_account(meterSerial="M1", deviceId="D1")
+        extract_output = self.make_extract_output([account], [])
+
+        meters, _ = self.adapter._transform("run-1", extract_output)
+
+        self.assertEqual(1, len(meters))
+        self.assertEqual("M1", meters[0].device_id)
+
+    def test_device_id_falls_back_to_account_id_when_meter_serial_empty(self):
+        account = self._make_account(meterSerial="", accountId="A1", deviceId="D1")
+        extract_output = self.make_extract_output([account], [])
+
+        meters, _ = self.adapter._transform("run-1", extract_output)
+
+        self.assertEqual(1, len(meters))
+        self.assertEqual("A1", meters[0].device_id)
+
+    def test_different_register_serials_with_same_meter_serial_collapse_to_one_meter(
+        self,
+    ):
+        """
+        The Arlington-style bug: a register/endpoint swap changes deviceId/registerSerial
+        but meterSerial (and account) stay the same, so these must collapse to one meter.
+        """
+        account_before_swap = self._make_account(
+            deviceId="OLD_REGISTER", registerSerial="OLD_REGISTER", meterSerial="M1"
+        )
+        account_after_swap = self._make_account(
+            deviceId="NEW_REGISTER", registerSerial="NEW_REGISTER", meterSerial="M1"
+        )
+        extract_output = self.make_extract_output(
+            [account_before_swap, account_after_swap], []
+        )
+
+        meters, _ = self.adapter._transform("run-1", extract_output)
+
+        self.assertEqual(1, len(meters))
+        self.assertEqual("M1", meters[0].device_id)
+
+    def test_usage_lookup_still_keyed_by_raw_device_id(self):
+        """
+        Usage records only carry the raw (registerSerial-based) deviceId, so the join to
+        find an account's usages must still use that, even though the emitted device_id
+        is the new, meterSerial-based one.
+        """
+        # Matches the account's default latestReading usageTime so the interval and
+        # register reads merge into a single GeneralMeterRead (same pattern as
+        # test_transform_when_register_read_same_time_as_interval_read above).
+        account = self._make_account(deviceId="D1", meterSerial="M1")
+        usage = SubecaReading(
+            deviceId="D1",
+            usageTime="2025-08-01T10:00:00+00:00",
+            unit="cf",
+            value="42",
+        )
+        extract_output = self.make_extract_output([account], [usage])
+
+        meters, reads = self.adapter._transform("run-1", extract_output)
+
+        self.assertEqual(1, len(meters))
+        self.assertEqual("M1", meters[0].device_id)
+        self.assertEqual(1, len(reads))
+        self.assertEqual("M1", reads[0].device_id)
+        self.assertEqual(42, reads[0].interval_value)
+        self.assertEqual(100, reads[0].register_value)
+
+    def test_alarm_device_id_translated_via_account_metadata(self):
+        account = self._make_account(deviceId="OLD_REGISTER", meterSerial="M1")
+        alarm = SubecaAlarm(
+            name="Radio Low Battery",
+            startAt="2026-01-02T00:00:00+00:00",
+            endAt="2026-01-02T01:00:00+00:00",
+            deviceId="OLD_REGISTER",
+        )
+        extract_output = self.make_extract_output([account], [], alarms=[alarm])
+
+        result = self.adapter._transform_meter_alerts("run-1", extract_output)
+
+        self.assertEqual(1, len(result))
+        self.assertEqual("M1", result[0].device_id)
+
+    def test_alarm_with_untranslatable_device_id_is_skipped(self):
+        account = self._make_account(deviceId="OLD_REGISTER", meterSerial="M1")
+        alarm = SubecaAlarm(
+            name="Radio Low Battery",
+            startAt="2026-01-02T00:00:00+00:00",
+            endAt="2026-01-02T01:00:00+00:00",
+            deviceId="SOME_OTHER_UNKNOWN_DEVICE",
+        )
+        extract_output = self.make_extract_output([account], [], alarms=[alarm])
+
+        # Logging is globally disabled in BaseTestCase (logging.disable(CRITICAL)), so
+        # we only assert on behavior here: the alert is dropped, not raised.
+        result = self.adapter._transform_meter_alerts("run-1", extract_output)
+
+        self.assertEqual([], result)
+
+
 class TestTransformMeterAlerts(BaseTestCase):
 
     def setUp(self):

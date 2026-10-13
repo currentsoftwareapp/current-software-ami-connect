@@ -301,6 +301,89 @@ class TestDatabase(BaseTestCase):
             "account_level_daily_high_usage_thresholds", subeca["meter_alerts"]
         )
 
+    def test_merge_falls_back_to_base_org_id_for_new_style_subeca_org(self):
+        sources = [{"org_id": "my_subeca_utility_2"}]
+        ub_sources = [
+            {
+                "snowflakeid": "my_subeca_utility",
+                "meteralerthighusagethreshold": 100,
+                "meteralerthighusageunit": "CF",
+            }
+        ]
+        account_thresholds = [
+            {
+                "snowflakeid": "my_subeca_utility",
+                "device_id": "device_a",
+                "threshold": 50,
+                "unit": "CCF",
+            },
+        ]
+
+        merged = _merge_snowflake_and_utility_billing_settings(
+            sources, ub_sources, account_thresholds
+        )
+
+        new_style_subeca_org = merged[0]
+        self.assertEqual(
+            new_style_subeca_org["meter_alerts"]["daily_high_usage_threshold"], 100
+        )
+        self.assertEqual(
+            new_style_subeca_org["meter_alerts"][
+                "account_level_daily_high_usage_thresholds"
+            ],
+            [{"device_id": "device_a", "threshold": 50, "unit": "CCF"}],
+        )
+
+    def test_merge_prefers_exact_match_over_base_org_id_fallback_for_new_style_subeca_org(
+        self,
+    ):
+        sources = [{"org_id": "my_subeca_utility_2"}]
+        ub_sources = [
+            {
+                "snowflakeid": "my_subeca_utility_2",
+                "meteralerthighusagethreshold": 200,
+                "meteralerthighusageunit": "CF",
+            }
+        ]
+
+        merged = _merge_snowflake_and_utility_billing_settings(sources, ub_sources)
+
+        self.assertEqual(merged[0]["meter_alerts"]["daily_high_usage_threshold"], 200)
+
+    def test_merge_does_not_fall_back_for_non_new_style_subeca_org_id(self):
+        sources = [{"org_id": "my_subeca_utility"}]
+        ub_sources = [
+            {
+                "snowflakeid": "my_subeca_utility_2",
+                "meteralerthighusagethreshold": 100,
+                "meteralerthighusageunit": "CF",
+            }
+        ]
+
+        merged = _merge_snowflake_and_utility_billing_settings(sources, ub_sources)
+
+        self.assertEqual(merged[0]["meter_alerts"], {})
+
+    def test_merge_raises_if_new_style_subeca_org_matches_both_itself_and_base_org(
+        self,
+    ):
+        sources = [{"org_id": "my_subeca_utility_2"}]
+        ub_sources = [
+            {
+                "snowflakeid": "my_subeca_utility",
+                "meteralerthighusagethreshold": 100,
+                "meteralerthighusageunit": "CF",
+            },
+            {
+                "snowflakeid": "my_subeca_utility_2",
+                "meteralerthighusagethreshold": 200,
+                "meteralerthighusageunit": "CF",
+            },
+        ]
+
+        with self.assertRaises(ValueError):
+            _merge_snowflake_and_utility_billing_settings(sources, ub_sources)
+
     def test_merge_without_account_thresholds_leaves_meter_alerts_unchanged(self):
         sources = [{"org_id": "my_beacon_utility"}]
         ub_sources = [

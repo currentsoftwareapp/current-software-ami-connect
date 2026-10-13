@@ -8,6 +8,25 @@ from typing import Any, Dict, List, Optional, Union
 import pytz
 from pytz.tzinfo import DstTzInfo
 
+# Temporary convention for the Subeca device_id migration: a new-style Subeca org_id
+# runs alongside its original org_id with corrected device_id logic until Utility
+# Billing cuts over to it. Remove this once every Subeca org has cut over and the
+# legacy device_id code path is deleted.
+NEW_STYLE_SUBECA_ORG_SUFFIX = "_2"
+
+
+def is_new_style_subeca_org_id(org_id: str) -> bool:
+    return org_id.endswith(NEW_STYLE_SUBECA_ORG_SUFFIX)
+
+
+def base_org_id(org_id: str) -> str:
+    """
+    Strips the new-style-Subeca-org suffix, if present. Returns org_id unchanged otherwise.
+    """
+    if is_new_style_subeca_org_id(org_id):
+        return org_id[: -len(NEW_STYLE_SUBECA_ORG_SUFFIX)]
+    return org_id
+
 
 class IntermediateOutputType(str, Enum):
     LOCAL = "local"  # Extract and Transform outputs go to local filesystem
