@@ -15,7 +15,7 @@ python cli.py config add-source my_utility subeca America/Los_Angeles --config a
 
 Example:
 ```
-python cli.py config update-secret my_utility --source-type subeca --secret api-key=my_api_key
+python cli.py config update-secret my_utility --source-type subeca --secret api_key=my_api_key
 ```
 
 ## Limitations
