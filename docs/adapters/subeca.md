@@ -8,7 +8,7 @@ The Subeca adapter retrieves data via Subeca's HTTP API.
 
 Example:
 ```
-python cli.py config add-source my_utility subeca America/Los_Angeles --config api-url=https://my-source-name.api.subeca.online --sinks my_snowflake
+python cli.py config add-source my_utility subeca America/Los_Angeles --config api_url=https://my-source-name.api.subeca.online --sinks my_snowflake
 ```
 
 ## Secrets
