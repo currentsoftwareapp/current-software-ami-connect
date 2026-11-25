@@ -18,24 +18,6 @@ else
     cd $BUILD_DIR
 fi
 
-# Pull in the Neptune adapter code if a private neptune repo URL is provided
-NEPTUNE_REPO_DIR="$BUILD_DIR/neptune"
-if [[ -n "${AMI_CONNECT_NEPTUNE_REPO_URL:-}" ]]; then
-    echo "🔧 Pulling latest neptune code from GitHub"
-    if [ ! -d $NEPTUNE_REPO_DIR ]; then
-        git clone "$AMI_CONNECT_NEPTUNE_REPO_URL" "$NEPTUNE_REPO_DIR"
-    else
-        cd $NEPTUNE_REPO_DIR
-        git fetch --all
-        git reset --hard origin/main
-        cd $BUILD_DIR
-    fi
-else
-    echo "🔧 No neptune repo configured, creating empty neptune directory"
-    # Docker expects the folder to exist, so make an empty one
-    mkdir -p "$NEPTUNE_REPO_DIR"
-fi
-
 if [[ "${FULL_RESTART,,}" == "true" ]]; then
     echo "🚚 Setting up .env file"
     cd $BUILD_DIR
