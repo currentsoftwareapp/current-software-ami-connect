@@ -8,7 +8,13 @@ import requests
 from amiadapters.configuration.models import (
     LocalIntermediateOutputControllerConfiguration,
 )
-from amiadapters.adapters.neptune import Consumption, Endpoint, NeptuneAdapter, Reading
+from amiadapters.adapters.neptune import (
+    Consumption,
+    Endpoint,
+    NeptuneAdapter,
+    Reading,
+    _neptune_raw_snowflake_loader,
+)
 from amiadapters.models import DataclassJSONEncoder
 from amiadapters.outputs.base import ExtractOutput
 from test.base_test_case import BaseTestCase
@@ -318,3 +324,60 @@ class TestMetersenseAdapter(BaseTestCase):
         )
         self.assertIsNone(self.adapter._register_multiplier([consumption("0", "0")]))
         self.assertIsNone(self.adapter._register_multiplier([]))
+
+
+class TestNeptuneRawSnowflakeLoader(BaseTestCase):
+    def setUp(self):
+        self.table_loaders = {
+            t.table_name(): t for t in _neptune_raw_snowflake_loader().table_loaders
+        }
+
+    def test_table_loaders(self):
+        self.assertEqual(
+            {
+                "NEPTUNE_360_ENDPOINTS_BASE": ["meter_number", "miu_id"],
+                "NEPTUNE_360_CONSUMPTION_BASE": [
+                    "meter_number",
+                    "miu_id",
+                    "reading_date_utc",
+                ],
+                "NEPTUNE_360_READINGS_BASE": [
+                    "meter_number",
+                    "miu_id",
+                    "reading_datetime_utc",
+                ],
+            },
+            {name: t.unique_by() for name, t in self.table_loaders.items()},
+        )
+
+    def test_prepare_raw_data_returns_tuples_in_column_order(self):
+        consumption = Consumption(
+            meter_number="MTR1",
+            miu_id="MIU1",
+            consumption_amount="10",
+            consumption_with_multiplier="20",
+            reading_date_utc="2021-01-01T00:00:00",
+        )
+        extract_outputs = ExtractOutput(
+            {"consumption.json": json.dumps(consumption, cls=DataclassJSONEncoder)}
+        )
+        loader = self.table_loaders["NEPTUNE_360_CONSUMPTION_BASE"]
+
+        self.assertEqual(
+            [
+                "meter_number",
+                "miu_id",
+                "consumption_amount",
+                "consumption_with_multiplier",
+                "reading_date_utc",
+            ],
+            loader.columns(),
+        )
+        self.assertEqual(
+            [("MTR1", "MIU1", "10", "20", "2021-01-01T00:00:00")],
+            loader.prepare_raw_data(extract_outputs),
+        )
+
+    def test_prepare_raw_data_allows_empty_file(self):
+        loader = self.table_loaders["NEPTUNE_360_READINGS_BASE"]
+        self.assertEqual([], loader.prepare_raw_data(ExtractOutput({})))

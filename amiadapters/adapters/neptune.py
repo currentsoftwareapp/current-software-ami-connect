@@ -8,7 +8,6 @@ import time
 from typing import Dict, Generator, List, Optional
 
 import pytz
-from pytz.tzinfo import DstTzInfo
 import requests
 
 from amiadapters.adapters.base import BaseAMIAdapter
@@ -19,7 +18,7 @@ from amiadapters.models import (
     GeneralMeterUnitOfMeasure,
 )
 from amiadapters.outputs.base import ExtractOutput
-from amiadapters.storage.snowflake import RawSnowflakeLoader
+from amiadapters.storage.snowflake import RawSnowflakeLoader, RawSnowflakeTableLoader
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +117,7 @@ class NeptuneAdapter(BaseAMIAdapter):
             configured_meter_alerts,
             configured_metrics,
             configured_sinks,
-            NeptuneRawSnowflakeLoader(),
+            _neptune_raw_snowflake_loader(),
         )
 
     def name(self) -> str:
@@ -691,183 +690,53 @@ class NeptuneAdapter(BaseAMIAdapter):
         return []
 
 
-class NeptuneRawSnowflakeLoader(RawSnowflakeLoader):
+class _NeptuneRawTableLoader(RawSnowflakeTableLoader):
+    """
+    Loads one Neptune extract file into its raw table. Columns are the raw dataclass's fields.
+    """
 
-    def load(self, *args):
-        self._load_raw_endpoints(*args)
-        self._load_raw_consumption(*args)
-        self._load_raw_readings(*args)
+    def __init__(self, filename, raw_dataclass, table, unique_by):
+        self._filename = filename
+        self._raw_dataclass = raw_dataclass
+        self._table = table
+        self._unique_by = unique_by
 
-    def _load_raw_endpoints(
-        self,
-        run_id: str,
-        org_id: str,
-        org_timezone: DstTzInfo,
-        extract_outputs: ExtractOutput,
-        snowflake_conn,
-    ) -> None:
-        self._load_raw_data(
-            run_id,
-            org_id,
-            org_timezone,
-            extract_outputs,
-            snowflake_conn,
-            extract_output_filename="endpoints.json",
-            raw_dataclass=Endpoint,
-            table="NEPTUNE_360_ENDPOINTS_BASE",
-            unique_by=["meter_number", "miu_id"],
-        )
+    def table_name(self) -> str:
+        return self._table
 
-    def _load_raw_consumption(
-        self,
-        run_id: str,
-        org_id: str,
-        org_timezone: DstTzInfo,
-        extract_outputs: ExtractOutput,
-        snowflake_conn,
-    ) -> None:
-        self._load_raw_data(
-            run_id,
-            org_id,
-            org_timezone,
-            extract_outputs,
-            snowflake_conn,
-            extract_output_filename="consumption.json",
-            raw_dataclass=Consumption,
-            table="NEPTUNE_360_CONSUMPTION_BASE",
-            unique_by=["meter_number", "miu_id", "reading_date_utc"],
-        )
+    def columns(self) -> List[str]:
+        return [f.lower() for f in self._raw_dataclass.__dataclass_fields__.keys()]
 
-    def _load_raw_readings(
-        self,
-        run_id: str,
-        org_id: str,
-        org_timezone: DstTzInfo,
-        extract_outputs: ExtractOutput,
-        snowflake_conn,
-    ) -> None:
-        self._load_raw_data(
-            run_id,
-            org_id,
-            org_timezone,
-            extract_outputs,
-            snowflake_conn,
-            extract_output_filename="readings.json",
-            raw_dataclass=Reading,
-            table="NEPTUNE_360_READINGS_BASE",
-            unique_by=["meter_number", "miu_id", "reading_datetime_utc"],
-        )
+    def unique_by(self) -> List[str]:
+        return self._unique_by
 
-    def _load_raw_data(
-        self,
-        run_id: str,
-        org_id: str,
-        org_timezone: DstTzInfo,
-        extract_outputs: ExtractOutput,
-        snowflake_conn,
-        extract_output_filename: str,
-        raw_dataclass,
-        table: str,
-        unique_by: List[str],
-    ) -> None:
-        """
-        Extract raw data from intermediate outputs, then load into raw data table.
-
-        extract_output_filename: name of file in extract_outputs that contains the raw data
-        raw_dataclass: e.g. Meter, used to deserialize raw data and determine table column names
-        table: name of raw data table in Snowflake
-        unique_by: list of field names used with org_id to uniquely identify a row in the base table
-        """
+    def prepare_raw_data(self, extract_outputs: ExtractOutput) -> List[tuple]:
         raw_data = extract_outputs.load_from_file(
-            extract_output_filename, raw_dataclass, allow_empty=True
+            self._filename, self._raw_dataclass, allow_empty=True
         )
-        if not raw_data:
-            logger.info(
-                f"No data found for {extract_output_filename}, skipping raw load"
-            )
-            return
-        temp_table = f"temp_{table}"
-        fields = [f.lower() for f in raw_dataclass.__dataclass_fields__.keys()]
-        unique_by = [u.lower() for u in unique_by]
-        self._create_temp_table(
-            snowflake_conn,
-            temp_table,
-            table,
-            fields,
-            org_timezone,
-            org_id,
-            raw_data,
-        )
-        self._merge_from_temp_table(
-            snowflake_conn,
-            table,
-            temp_table,
-            fields,
-            unique_by,
-        )
+        return [tuple(getattr(r, name) for name in self.columns()) for r in raw_data]
 
-    def _create_temp_table(
-        self, snowflake_conn, temp_table, table, fields, org_timezone, org_id, raw_data
-    ) -> None:
-        """
-        Insert every object in raw_data into a temp copy of the table.
-        """
-        logger.info(f"Prepping for raw load to table {table}")
 
-        # Create the temp table
-        create_temp_table_sql = (
-            f"CREATE OR REPLACE TEMPORARY TABLE {temp_table} LIKE {table};"
-        )
-        snowflake_conn.cursor().execute(create_temp_table_sql)
-
-        # Insert raw data
-        columns_as_comma_str = ", ".join(fields)
-        qmarks = "?, " * (len(fields) - 1) + "?"
-        insert_temp_data_sql = f"""
-            INSERT INTO {temp_table} (org_id, created_time, {columns_as_comma_str}) 
-                VALUES (?, ?, {qmarks})
-        """
-        created_time = datetime.datetime.now(tz=org_timezone)
-        rows = [
-            tuple(
-                [org_id, created_time] + [i.__getattribute__(name) for name in fields]
-            )
-            for i in raw_data
+def _neptune_raw_snowflake_loader() -> RawSnowflakeLoader:
+    return RawSnowflakeLoader.with_table_loaders(
+        [
+            _NeptuneRawTableLoader(
+                "endpoints.json",
+                Endpoint,
+                "NEPTUNE_360_ENDPOINTS_BASE",
+                ["meter_number", "miu_id"],
+            ),
+            _NeptuneRawTableLoader(
+                "consumption.json",
+                Consumption,
+                "NEPTUNE_360_CONSUMPTION_BASE",
+                ["meter_number", "miu_id", "reading_date_utc"],
+            ),
+            _NeptuneRawTableLoader(
+                "readings.json",
+                Reading,
+                "NEPTUNE_360_READINGS_BASE",
+                ["meter_number", "miu_id", "reading_datetime_utc"],
+            ),
         ]
-        snowflake_conn.cursor().executemany(insert_temp_data_sql, rows)
-
-    def _merge_from_temp_table(
-        self,
-        snowflake_conn,
-        table: str,
-        temp_table: str,
-        fields: List[str],
-        unique_by: List[str],
-    ) -> None:
-        """
-        Merge data from temp table into the base table using the unique_by keys
-        """
-        logger.info(f"Merging {temp_table} into {table}")
-        merge_sql = f"""
-            MERGE INTO {table} AS target
-            USING (
-                -- Use GROUP BY to ensure there are no duplicate rows before merge
-                SELECT 
-                    org_id,
-                    {", ".join(unique_by)},
-                    {", ".join([f"max({name}) as {name}" for name in fields if name not in unique_by])}, 
-                    max(created_time) as created_time
-                FROM {temp_table} t
-                GROUP BY org_id, {", ".join(unique_by)}
-            ) AS source
-            ON source.org_id = target.org_id 
-                {" ".join(f"AND source.{i} = target.{i}" for i in unique_by)}
-            WHEN MATCHED THEN
-                UPDATE SET
-                    target.created_time = source.created_time,
-                    {",".join([f"target.{name} = source.{name}" for name in fields])}
-            WHEN NOT MATCHED THEN
-                INSERT (org_id, {", ".join(name for name in fields)}, created_time) 
-                        VALUES (source.org_id, {", ".join(f"source.{name}" for name in fields)}, source.created_time)
-        """
-        snowflake_conn.cursor().execute(merge_sql)
+    )
