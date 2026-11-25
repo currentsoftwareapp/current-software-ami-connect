@@ -1,25 +1,14 @@
 # Neptune 360
 
-The Neptune 360 adapter retrieves data via Neptune 360's HTTP API. This code is not available via open source.
-Users must provide their own implementation and make it available at the path specified in the configuration. Our deploy
-system takes this into account and allows the deployer to specify that it should pull down Neptune adapter code from
-a private GitHub repo.
-
-## Deploy
-
-Our `deploy.sh` script looks for a `AMI_CONNECT_NEPTUNE_REPO_URL` environment variable. If it's nonempty, then the system
-will attempt to pull the latest Neptune adapter code from that GitHub repo URL.
-
-The system expects that the server has permission to pull from this GitHub repo. We recommend that you create an SSH key on your
-server and add it as a [deploy key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys#set-up-deploy-keys) to your GitHub repo.
+The Neptune 360 adapter retrieves data via Neptune 360's HTTP API.
 
 ## Configuration
 
-- external_adapter_location: Path on remote server to the neptune-ami-connect python package (i.e. the folder with the adapter's python code), which is loaded onto the sys path. Path is relative to directory where Airflow runs python.
+No source-specific configuration.
 
 Example:
 ```
-python cli.py config add-source my_utility neptune America/Los_Angeles --config external-adapter-location=./neptune-ami-connect/neptune --sinks my_snowflake
+python cli.py config add-source my_utility neptune America/Los_Angeles --sinks current_snowflake
 ```
 
 ## Secrets

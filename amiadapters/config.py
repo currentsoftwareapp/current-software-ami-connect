@@ -12,6 +12,7 @@ from amiadapters.adapters.beacon import Beacon360Adapter
 from amiadapters.adapters.dev_adapter import DevAdapter
 from amiadapters.adapters.metersense import MetersenseAdapter
 from amiadapters.adapters.metron import MetronAdapter
+from amiadapters.adapters.neptune import NeptuneAdapter
 from amiadapters.adapters.sentryx import SentryxAdapter
 from amiadapters.adapters.subeca import SubecaAdapter
 from amiadapters.adapters.xylem_moulton_niguel import XylemMoultonNiguelAdapter
@@ -386,14 +387,6 @@ class AMIAdapterConfiguration:
                         )
                     )
                 case ConfiguredAMISourceTypes.NEPTUNE.value.type:
-                    # Neptune code is not in this project because of open source limitations
-                    # This code assumes Neptune's code is available at the external_adapter_location
-                    # which we append to the python path
-                    import sys
-
-                    sys.path.append(source.external_adapter_location)
-                    from neptune import NeptuneAdapter
-
                     adapters.append(
                         NeptuneAdapter(
                             source.org_id,

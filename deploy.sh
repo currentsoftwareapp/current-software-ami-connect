@@ -29,10 +29,6 @@ else
 fi
 
 AMI_CONNECT_REPO="currentsoftwareapp/current-software-ami-connect"
-# If you include a private neptune adapter in your deploy,
-# set the AMI_CONNECT_NEPTUNE_REPO_URL environment variable before running this script
-# Defaults to empty string if not set.
-AMI_CONNECT_NEPTUNE_REPO_URL="${AMI_CONNECT_NEPTUNE_REPO_URL:-}"
 
 TERRAFORM_OUTPUT_FILE="./amideploy/configuration/$ENVIRONMENT-output.json"
 
@@ -87,7 +83,6 @@ run_ssh "cd $REMOTE_DIR && \
     AMI_CONNECT__AIRFLOW_SITE_URL='$AIRFLOW_SITE_URL' \
     FULL_RESTART='$FULL_RESTART' \
     AMI_CONNECT_REPO='$AMI_CONNECT_REPO' \
-    AMI_CONNECT_NEPTUNE_REPO_URL='$AMI_CONNECT_NEPTUNE_REPO_URL' \
     bash remote-deploy.sh"
 
 log "===== Deployment complete ====="

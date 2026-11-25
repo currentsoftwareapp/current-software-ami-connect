@@ -664,13 +664,8 @@ class XylemMoultonNiguelSourceConfig(SourceConfigBase):
 
 @dataclass(frozen=True)
 class NeptuneSourceConfig(SourceConfigBase):
-    external_adapter_location: str
-
-    def validate(self):
-        super().validate()
-        self._require(
-            "external_adapter_location",
-        )
+    # Deprecated - the Neptune adapter now lives in this repo, so this is ignored
+    external_adapter_location: Optional[str] = None
 
 
 @dataclass(frozen=True)
